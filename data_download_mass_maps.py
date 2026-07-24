@@ -1,25 +1,50 @@
+"""Download FLAMINGO mass-map lightcone shells (nside 4096, no downsampling).
+
+For each shell, streams the TotalMass HEALPix map and the shell metadata off
+COSMA and writes one self-contained HDF5 file per shell:
+
+    map_{i}.hdf5
+        /mass_density         the HEALPix TotalMass map for shell i
+        /shell_info (group)   shell attributes (z / comoving-distance bounds, etc.)
+
+Output directory comes from config (MASS_MAP_L2p8_m9_4096).
+"""
+
 import hdfstream
 import numpy as np
-import swiftsimio as sw
-import healpy as hp
+import h5py
 
-sim_name = "L1_m9"
+import config as cfg
 
+sim_name = "L2p8_m9"
+nside = 4096
+n_shells = 68
+
+# Remote location on COSMA (streamed, not copied wholesale).
 root_dir = hdfstream.open("cosma", "/")
-lc_dir = root_dir["FLAMINGO/" + sim_name + "/" + sim_name + "/healpix_maps/nside_4096/lightcone0_shells/"]
+lc_dir = root_dir[
+    f"FLAMINGO/{sim_name}/{sim_name}/healpix_maps/nside_{nside}/lightcone0_shells/"
+]
 
-stellar_inertia_tensors = []
+# Local output directory (bs39 scratch, per config).
+output_dir = cfg.MASS_MAP_L2p8_m9_4096
+output_dir.mkdir(parents=True, exist_ok=True)
 
-nside_downsampled = 1024
-output_dir = f"data/mass_maps_{nside_downsampled}/" # TODO: change to makedir if doens't exist
+for i in range(n_shells):
+    remote_name = f"shell_{i}/swift_lightcone0.shell_{i}.0.hdf5"
+    shell_file = lc_dir[remote_name]
 
-# TODO: make consistent with convert_mass_maps.py
-for i in range(42, 60): # TODO: adjust range
-    file_name = f"shell_{i}/swift_lightcone0.shell_{i}.0.hdf5"
-    file = lc_dir[file_name]
+    mass_map = shell_file["TotalMass"][:]      # HEALPix map for this shell
+    shell = shell_file["Shell"]                # group holding shell metadata
 
-    mass_map = file["TotalMass"][:]
-    mass_map_downsampled = hp.ud_grade(mass_map, nside_out=nside_downsampled).astype(np.float32)
-    np.save(output_dir + f"map_{i}.npy", mass_map_downsampled)
+    out_path = output_dir / f"map_{i}.hdf5"
+    with h5py.File(out_path, "w") as out:
+        out.create_dataset("total_mass", data=mass_map)
+
+        info = out.require_group("shell_info")
+        for key in shell.attrs.keys():
+            info.attrs[key] = shell.attrs[key]
+
+    print(f"shell {i}: wrote {out_path}")
 
 print("Done")

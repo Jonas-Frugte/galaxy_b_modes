@@ -1,20 +1,81 @@
-import hdfstream
-import numpy as np
-import swiftsimio as sw
+"""Download FLAMINGO SOAP-HBT halo properties.
 
-sim_name = "L1_m9"
+For each snapshot, streams a selected subset of SOAP halo properties off COSMA
+and writes one HDF5 file per snapshot. Selected: total & stellar mass, particle
+counts (total bound + per type), and all four stellar inertia tensors
+(iterative/non-iterative x full/reduced), plus the halo catalogue index for
+matching against the halo lightcone.
+
+Everything needed to interpret the numbers is preserved:
+  - each dataset keeps its own attrs (unit exponents, CGS conversion factors,
+    a/h-scale exponents, description);
+  - the global /Units group (internal-unit -> CGS base factors) is copied;
+  - the /Cosmology group (h, scale factor, redshift, Omegas) is copied.
+"""
+
+import hdfstream
+import h5py
+
+import config
 
 root_dir = hdfstream.open("cosma", "/")
-lc_dir = root_dir["FLAMINGO/" + sim_name + "/" + sim_name + "/SOAP-HBT"]
+soap_dir = root_dir["FLAMINGO/L2p8_m9/L2p8_m9/SOAP-HBT"]
 
-stellar_inertia_tensors = []
-output_dir = "data/" + sim_name + "/stellar_inertia_tensors/" # TODO: change to makedir if doens't exist
+# HDF5 path in the source file -> dataset name in the output file.
+fields = {
+    # Masses (units: 1e10 Msun)
+    "BoundSubhalo/TotalMass":                          "total_mass",
+    "BoundSubhalo/StellarMass":                        "stellar_mass",
+    # Particle counts (dimensionless)
+    "InputHalos/NumberOfBoundParticles":               "n_bound_particles",
+    "BoundSubhalo/NumberOfStarParticles":              "n_star_particles",
+    "BoundSubhalo/NumberOfDarkMatterParticles":        "n_dm_particles",
+    "BoundSubhalo/NumberOfGasParticles":               "n_gas_particles",
+    "BoundSubhalo/NumberOfBlackHoleParticles":         "n_bh_particles",
+    # Stellar inertia tensors. Shape 6, stored as upper triangle:
+    # (1,1),(2,2),(3,3),(1,2),(1,3),(2,3). Only computed for >20 particles.
+    # Non-reduced units: Mpc^2. Reduced: dimensionless.
+    "BoundSubhalo/StellarInertiaTensor":               "stellar_inertia_tensor",
+    "BoundSubhalo/StellarInertiaTensorNoniterative":   "stellar_inertia_tensor_noniterative",
+    "BoundSubhalo/StellarInertiaTensorReduced":        "stellar_inertia_tensor_reduced",
+    "BoundSubhalo/StellarInertiaTensorReducedNoniterative": "stellar_inertia_tensor_reduced_noniterative",
+    # Index for matching to the halo lightcone (its InputHalos/SOAPIndex).
+    "InputHalos/HaloCatalogueIndex":                   "halo_catalogue_index",
+}
 
-for i in range(78):
-    file_name = f"halo_properties_{i:04d}.hdf5"
-    file = lc_dir[file_name]
+# Global metadata groups to copy verbatim (attributes only).
+meta_groups = ["Units", "Cosmology"]
 
-    arr = file["BoundSubhalo/StellarInertiaTensor"][:]
-    np.save(output_dir + f"stellar_inertia_tensors_{i:02d}.npy", arr)
+n_snapshots = 79
 
-print("Done")
+output_dir = config.SOAP_L2p8_m9
+output_dir.mkdir(parents=True, exist_ok=True)
+
+for i in range(n_snapshots):
+    out_path = output_dir / f"halos_{i:04d}.hdf5"
+    if out_path.exists():                   # already downloaded -> skip
+        print(f"snapshot {i} already done, skipping")
+        continue
+
+    file = soap_dir[f"halo_properties_{i:04d}.hdf5"]
+
+    tmp_path = out_path.with_name(out_path.name + ".tmp")  # write temp first
+    with h5py.File(tmp_path, "w") as out:
+        # Halo property datasets, each with its unit attrs carried over.
+        for path, name in fields.items():
+            src = file[path]
+            dset = out.create_dataset(name, data=src[:])
+            for key in src.attrs.keys():
+                dset.attrs[key] = src.attrs[key]
+
+        # Global unit / cosmology metadata as attribute-only groups.
+        for gname in meta_groups:
+            src_group = file[gname]
+            g = out.require_group(gname)
+            for key in src_group.attrs.keys():
+                g.attrs[key] = src_group.attrs[key]
+
+    tmp_path.rename(out_path)               # rename only once fully written
+    print(f"snapshot {i} done")
+
+print("All snapshots downloaded.")
