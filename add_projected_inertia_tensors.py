@@ -1,9 +1,17 @@
-"""Diagnostic only: why do some lightcone halos fail to match a SOAP row?
+"""Diagnostic only: verify the lightcone -> SOAP row mapping.
 
-Writes nothing. Runs over all shells, reports per-shell matching statistics and
-the properties of the unmatched halos, then prints a summary.
+The lightcone's SOAP_indexes column is a row number into the SOAP file for the
+corresponding snapshot (attribute: "Index of the halo in the input SOAP
+catalogue"). SOAP's halo_catalogue_index is an index into the HBT-HERONS
+catalogue, which is a different quantity and plays no part in the mapping.
 
-Run on the head node; it only reads index/mass columns, not the tensors.
+Correctness test: BoundSubhalo/TotalMass was downloaded from both the lightcone
+and SOAP. Under the correct mapping the two must agree bitwise for every halo.
+
+Also runs the old (wrong) searchsorted mapping for comparison, to confirm it
+fails and to count how many rows it happened to get right.
+
+Writes nothing. Reads only index and mass columns, not the tensors.
 """
 
 import numpy as np
@@ -15,98 +23,101 @@ soap_dir = config.SOAP_L2p8_m9
 lightcone_dir = config.LIGHTCONE_L2p8_m9
 
 n_shells = 79
+check_old_mapping = True     # set False once the new mapping is confirmed
 printed_attrs = False
 summary = []
 
-print(f"{'sh':>3} {'z_lc_min':>9} {'z_lc_max':>9} {'z_snap':>8} "
-      f"{'n_lc':>10} {'n_soap':>11} {'unmatched':>10} {'frac':>8} "
-      f"{'maxSOAPIdx':>12} {'maxCatIdx':>12} {'snaps'}")
+hdr = (f"{'sh':>3} {'z_lc_min':>9} {'z_lc_max':>9} {'z_snap':>8} "
+       f"{'n_lc':>10} {'n_soap':>11} {'maxRow':>11} {'n_massdiff':>11} "
+       f"{'max|dm|':>11}")
+if check_old_mapping:
+    hdr += f" {'old_max|dm|':>12} {'old_rows_ok':>12}"
+hdr += "  snaps"
+print(hdr)
 
 for i in range(n_shells):
     with h5py.File(lightcone_dir / f"shell_{i:04d}.hdf5", "r") as lc:
-        soap_idx_lc = lc["SOAP_indexes"][:]
+        lc_soap_row = lc["SOAP_indexes"][:]          # row number into SOAP file
 
-        if soap_idx_lc.size == 0:
+        if lc_soap_row.size == 0:
             print(f"{i:>3} {'empty':>9}")
             continue
 
         z_lc = lc["redshifts"][:]
         snaps = np.unique(lc["snapshot_numbers"][:])
-        lc_mass = lc["masses"][:]
+        lc_mass = lc["masses"][:]                     # BoundSubhalo/TotalMass
         lc_attrs = dict(lc["SOAP_indexes"].attrs)
 
         with h5py.File(soap_dir / f"halos_{i:04d}.hdf5", "r") as soap:
-            soap_idx = soap["halo_catalogue_index"][:]
+            soap_hbt_idx = soap["halo_catalogue_index"][:]   # HBT index, not a row
             z_snap = float(np.atleast_1d(soap["Cosmology"].attrs["Redshift"])[0])
-            soap_attrs = dict(soap["halo_catalogue_index"].attrs)
 
-            # --- attributes, once ---
             if not printed_attrs:
                 print("\n--- lightcone SOAP_indexes attrs ---")
                 for k, v in lc_attrs.items():
-                    print(f"    {k}: {v}")
-                print("--- soap halo_catalogue_index attrs ---")
-                for k, v in soap_attrs.items():
                     print(f"    {k}: {v}")
                 print("--- soap datasets available ---")
                 print("   ", list(soap.keys()))
                 print()
                 printed_attrs = True
 
-            # --- the lookup, clamped so nothing raises ---
-            is_sorted = bool(np.all(soap_idx[:-1] < soap_idx[1:]))
-            if is_sorted:
-                pos = np.searchsorted(soap_idx, soap_idx_lc)
-            else:
-                sorter = np.argsort(soap_idx)
-                pos = sorter[np.searchsorted(soap_idx, soap_idx_lc, sorter=sorter)]
-            pos = np.minimum(pos, soap_idx.size - 1)
+            # --- mapping: the row number is already in the lightcone file ---
+            if lc_soap_row.max() >= soap_hbt_idx.size:
+                print(f"{i:>3}  ERROR: max row {lc_soap_row.max()} >= "
+                      f"n_soap {soap_hbt_idx.size}")
+                summary.append((i, -1, lc_soap_row.size, np.nan))
+                continue
 
-            matched = soap_idx[pos] == soap_idx_lc
-            n_bad = int((~matched).sum())
-            frac_bad = n_bad / matched.size
+            soap_mass = soap["total_mass"][:]
+            dm = np.abs(lc_mass - soap_mass[lc_soap_row])
+            n_massdiff = int((dm > 0).sum())
 
-            print(f"{i:>3} {z_lc.min():>9.4f} {z_lc.max():>9.4f} {z_snap:>8.4f} "
-                  f"{soap_idx_lc.size:>10d} {soap_idx.size:>11d} "
-                  f"{n_bad:>10d} {frac_bad:>8.4%} "
-                  f"{soap_idx_lc.max():>12d} {soap_idx.max():>12d} {snaps}")
+            line = (f"{i:>3} {z_lc.min():>9.4f} {z_lc.max():>9.4f} {z_snap:>8.4f} "
+                    f"{lc_soap_row.size:>10d} {soap_hbt_idx.size:>11d} "
+                    f"{lc_soap_row.max():>11d} {n_massdiff:>11d} {dm.max():>11.4g}")
 
-            # --- deeper look on the first shell that has unmatched halos ---
-            if n_bad and len(summary) == 0 or (n_bad and not any(s[1] for s in summary)):
-                bad_ids = soap_idx_lc[~matched]
-                bad_mass = lc_mass[~matched]
-                good_mass = lc_mass[matched]
+            # --- old mapping, for comparison ---
+            if check_old_mapping:
+                sorter = np.argsort(soap_hbt_idx)
+                old = sorter[np.searchsorted(soap_hbt_idx, lc_soap_row,
+                                             sorter=sorter)]
+                old = np.minimum(old, soap_hbt_idx.size - 1)
+                dm_old = np.abs(lc_mass - soap_mass[old])
+                rows_ok = int((old == lc_soap_row).sum())
+                line += f" {dm_old.max():>12.4g} {rows_ok:>12d}"
 
-                print(f"\n=== shell {i}: first shell with unmatched halos ===")
-                print(f"  soap_idx sorted strictly increasing : {is_sorted}")
-                print(f"  soap_idx has duplicates             : "
-                      f"{soap_idx.size != np.unique(soap_idx).size}")
-                print(f"  lightcone IDs present in soap ID set: "
-                      f"{int(np.isin(soap_idx_lc, soap_idx).sum())} of {soap_idx_lc.size}")
-                print(f"  unmatched IDs   min/max : {bad_ids.min()} / {bad_ids.max()}")
-                print(f"  soap IDs        min/max : {soap_idx.min()} / {soap_idx.max()}")
-                print(f"  unmatched IDs below soap min : {int((bad_ids < soap_idx.min()).sum())}")
-                print(f"  unmatched IDs above soap max : {int((bad_ids > soap_idx.max()).sum())}")
-                print(f"  unmatched mass [1e10 Msun] min/median/max : "
-                      f"{bad_mass.min():.4g} / {np.median(bad_mass):.4g} / {bad_mass.max():.4g}")
-                if good_mass.size:
-                    print(f"  matched   mass [1e10 Msun] min/median/max : "
-                          f"{good_mass.min():.4g} / {np.median(good_mass):.4g} / {good_mass.max():.4g}")
-                # is SOAPIndex plausibly a row number rather than a catalogue ID?
-                print(f"  max SOAPIndex vs n_soap_rows : "
-                      f"{soap_idx_lc.max()} vs {soap_idx.size}")
-                print(f"  first 10 unmatched IDs : {bad_ids[:10]}")
-                print(f"  first 10 soap IDs      : {soap_idx[:10]}")
+            line += f"  {snaps}"
+            print(line)
+
+            # --- detail on the first shell with any mass disagreement ---
+            if n_massdiff and not any(s[1] > 0 for s in summary):
+                bad = dm > 0
+                print(f"\n=== shell {i}: mass disagreement under new mapping ===")
+                print(f"  n disagreeing : {n_massdiff} of {dm.size} "
+                      f"({n_massdiff / dm.size:.4%})")
+                print(f"  max |dm|      : {dm.max():.6g}")
+                print(f"  rows involved min/max : "
+                      f"{lc_soap_row[bad].min()} / {lc_soap_row[bad].max()}")
+                print(f"  lc_mass   sample : {lc_mass[bad][:5]}")
+                print(f"  soap_mass sample : {soap_mass[lc_soap_row][bad][:5]}")
+                print(f"  duplicate rows in lightcone : "
+                      f"{lc_soap_row.size - np.unique(lc_soap_row).size}")
                 print()
 
-            summary.append((i, n_bad, matched.size))
+            summary.append((i, n_massdiff, lc_soap_row.size, float(dm.max())))
 
 print("\n=== summary ===")
-tot_bad = sum(s[1] for s in summary)
-tot_all = sum(s[2] for s in summary)
-n_shells_bad = sum(1 for s in summary if s[1])
-print(f"shells processed        : {len(summary)}")
-print(f"shells with unmatched   : {n_shells_bad}")
-print(f"total unmatched halos   : {tot_bad} of {tot_all} ({tot_bad / tot_all:.4%})")
-if n_shells_bad:
-    print(f"shells affected         : {[s[0] for s in summary if s[1]]}")
+ok = [s for s in summary if s[1] == 0]
+bad = [s for s in summary if s[1] > 0]
+err = [s for s in summary if s[1] < 0]
+tot = sum(s[2] for s in summary if s[1] >= 0)
+tot_bad = sum(s[1] for s in bad)
+print(f"shells processed          : {len(summary)}")
+print(f"shells fully consistent   : {len(ok)}")
+print(f"shells with mass mismatch : {len(bad)}")
+print(f"shells with bad row range : {len(err)}")
+if tot:
+    print(f"halos with mass mismatch  : {tot_bad} of {tot} ({tot_bad / tot:.4%})")
+if bad:
+    print(f"affected shells           : {[s[0] for s in bad]}")
+    print(f"worst max|dm|             : {max(s[3] for s in bad):.6g}")
