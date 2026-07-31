@@ -1,3 +1,11 @@
+"""Diagnostic only: why do some lightcone halos fail to match a SOAP row?
+
+Writes nothing. Runs over all shells, reports per-shell matching statistics and
+the properties of the unmatched halos, then prints a summary.
+
+Run on the head node; it only reads index/mass columns, not the tensors.
+"""
+
 import numpy as np
 import h5py
 
@@ -5,133 +13,100 @@ import config
 
 soap_dir = config.SOAP_L2p8_m9
 lightcone_dir = config.LIGHTCONE_L2p8_m9
-shells_resolved_dir = config.SHELLS_RESOLVED_L2p8_m9
-min_num_particles = config.MIN_NUM_PARTICLES_FOR_SHAPE
 
-# create dir if it doesn't already exist
-shells_resolved_dir.mkdir(parents=True, exist_ok=True) 
+n_shells = 79
+printed_attrs = False
+summary = []
 
-def los_vec(halo_coord, origin = np.array([0, 0, 0])):
-    halo_coord = np.array(halo_coord)
-    difference = halo_coord - origin
-    return difference / np.linalg.norm(difference) 
-    
-def project_tensor(tensor, los_vec):
-    # tensor: the (6,) packed symmetric inertia tensor for one subhalo
-    if np.all(tensor == 0):                 # sentinel = unresolved subhalo
-        return [np.nan, np.nan]
+print(f"{'sh':>3} {'z_lc_min':>9} {'z_lc_max':>9} {'z_snap':>8} "
+      f"{'n_lc':>10} {'n_soap':>11} {'unmatched':>10} {'frac':>8} "
+      f"{'maxSOAPIdx':>12} {'maxCatIdx':>12} {'snaps'}")
 
-    # rebuild the 3x3 symmetric matrix from the 6 packed components
-     # TODO: check the trace of the matrix, how it affects stuff, etc.
-    Ixx, Iyy, Izz, Ixy, Ixz, Iyz = tensor
-    S = np.array([[Ixx, Ixy, Ixz],
-                  [Ixy, Iyy, Iyz],
-                  [Ixz, Iyz, Izz]])
+for i in range(n_shells):
+    with h5py.File(lightcone_dir / f"shell_{i:04d}.hdf5", "r") as lc:
+        soap_idx_lc = lc["SOAP_indexes"][:]
 
-    los_vec = los_vec / np.linalg.norm(los_vec)   # ensure unit LOS
-
-    phi_hat = np.cross([0, 0, 1], los_vec)
-    phi_hat_size = np.linalg.norm(phi_hat)
-    if phi_hat_size == 0:                            # object on the pole axis; e_phi undefined
-        return [np.nan, np.nan]
-    phi_hat /= phi_hat_size
-    theta_hat = np.cross(phi_hat, los_vec)
-
-    # theta_hat and phi_hat should be collumn but with numpy convention they are rows here, hence transposed
-    projection_matrix_transposed = np.array([theta_hat, phi_hat])      
-
-    Q = projection_matrix_transposed @ S @ projection_matrix_transposed.T                         # 2x2 projected tensor
-
-    # TO LINEAR ORDER: e_1 = 2 * gamma_1 / (1 - 2 * kappa), e_2 = 2 * gamma_2 / (1 - 2 * kappa)
-    # i.e. ellipticity equals twice the reduced shear
-    # (this is for a spherical galaxy)
-    T = Q[0, 0] + Q[1, 1]
-    e_1 = (Q[0, 0] - Q[1, 1]) / T
-    e_2 = 2 * Q[0, 1] / T
-
-    
-    return [e_1, e_2]
-
-# mapping from SOAP hdf5 files to projected shape tensor hdf5 file (all per shell)
-fields_lightcone = {
-    "halo_coords": "halo_coords",
-    "redshifts": "redshifts",
-    "SOAP_indexes": "SOAP_indexes" 
-}
-fields_soap = {
-    "total_mass": "masses",
-    "stellar_mass": "stellar_masses",
-    "halo_catalogue_index": "SOAP_index_from_SOAP_cat",
-    "track_id": "track_id"
-}
-fields_soap_tensor = {
-    "stellar_inertia_tensor": "proj_tensors",
-    "stellar_inertia_tensor_noniterative": "proj_tensors_nonit",
-    "stellar_inertia_tensor_reduced": "proj_tensors_red",
-    "stellar_inertia_tensor_reduced_noniterative": "proj_tensors_red_nonit",
-}
-for i in range(79): # shell number
-    with h5py.File(lightcone_dir / f"shell_{i:04d}.hdf5", "r") as lightcone_shell:
-        soap_idx_lightcone = lightcone_shell["SOAP_indexes"][:]
-
-        if len(soap_idx_lightcone) == 0:
-            print(f"Shell {i} empty, skipping")
+        if soap_idx_lc.size == 0:
+            print(f"{i:>3} {'empty':>9}")
             continue
 
-        with h5py.File(soap_dir / f"halos_{i:04d}.hdf5", "r") as soap_data:
-            soap_idx_soap_data = soap_data["halo_catalogue_index"][:]
+        z_lc = lc["redshifts"][:]
+        snaps = np.unique(lc["snapshot_numbers"][:])
+        lc_mass = lc["masses"][:]
+        lc_attrs = dict(lc["SOAP_indexes"].attrs)
 
-            # check redshift of soap_snapshot and redshift of lightcone shell first:
-            z_lc = lightcone_shell["redshifts"][:]
-            z_lc_min, z_lc_max = z_lc.min(), z_lc.max()
-            z_snap_soap = float(np.atleast_1d(soap_data["Cosmology"].attrs["Redshift"])[0])
-            print(f"i={i}. redshift of lightcone shell: [{z_lc_min, z_lc_max}]. redshift of SOAP snapshot: {z_snap_soap}")
+        with h5py.File(soap_dir / f"halos_{i:04d}.hdf5", "r") as soap:
+            soap_idx = soap["halo_catalogue_index"][:]
+            z_snap = float(np.atleast_1d(soap["Cosmology"].attrs["Redshift"])[0])
+            soap_attrs = dict(soap["halo_catalogue_index"].attrs)
 
-            # the index is the same as the index of the lightcone, the value at each index is the corresponding row in the soap_data, so if you index a row from the soap table you get a new row mapped to the appropriate places to match the lightcone
-            if np.all(soap_idx_soap_data[:-1] < soap_idx_soap_data[1:]):
-                lightcone_to_soap_data = np.searchsorted(soap_idx_soap_data, soap_idx_lightcone)
+            # --- attributes, once ---
+            if not printed_attrs:
+                print("\n--- lightcone SOAP_indexes attrs ---")
+                for k, v in lc_attrs.items():
+                    print(f"    {k}: {v}")
+                print("--- soap halo_catalogue_index attrs ---")
+                for k, v in soap_attrs.items():
+                    print(f"    {k}: {v}")
+                print("--- soap datasets available ---")
+                print("   ", list(soap.keys()))
+                print()
+                printed_attrs = True
+
+            # --- the lookup, clamped so nothing raises ---
+            is_sorted = bool(np.all(soap_idx[:-1] < soap_idx[1:]))
+            if is_sorted:
+                pos = np.searchsorted(soap_idx, soap_idx_lc)
             else:
-                sorter = np.argsort(soap_idx_soap_data)
-                lightcone_to_soap_data = sorter[np.searchsorted(soap_idx_soap_data, soap_idx_lightcone, sorter=sorter)]
-	    
-	    print("n_soap rows   :", soap_idx_soap_data.size)
-            print("max HaloCatIdx:", soap_idx_soap_data.max())
-            print("max SOAPIndex :", soap_idx_lightcone.max())
-            print("snapshots in shell:", np.unique(lightcone_shell["snapshot_numbers"][:]))  
-            print("lc attrs  :", dict(lightcone_shell["SOAP_indexes"].attrs))
-            print("soap attrs:", dict(soap_data["halo_catalogue_index"].attrs))
-            bad = soap_idx_soap_data[lightcone_to_soap_data] != soap_idx_lightcone
-            print(f"unmatched: {bad.sum()} of {bad.size}")
-            # assert lightcone_to_soap_data.max() < soap_idx_soap_data.size, "lightcone ID beyond catalogue"
-            # assert np.all(soap_idx_soap_data[lightcone_to_soap_data] == soap_idx_lightcone), "unmatched halo"
+                sorter = np.argsort(soap_idx)
+                pos = sorter[np.searchsorted(soap_idx, soap_idx_lc, sorter=sorter)]
+            pos = np.minimum(pos, soap_idx.size - 1)
 
-            n_star_lightcone = soap_data["n_star_particles"][:][lightcone_to_soap_data]
-            keep_lightcone = n_star_lightcone > min_num_particles
+            matched = soap_idx[pos] == soap_idx_lc
+            n_bad = int((~matched).sum())
+            frac_bad = n_bad / matched.size
 
-            coords_keep = lightcone_shell["halo_coords"][keep_lightcone]
+            print(f"{i:>3} {z_lc.min():>9.4f} {z_lc.max():>9.4f} {z_snap:>8.4f} "
+                  f"{soap_idx_lc.size:>10d} {soap_idx.size:>11d} "
+                  f"{n_bad:>10d} {frac_bad:>8.4%} "
+                  f"{soap_idx_lc.max():>12d} {soap_idx.max():>12d} {snaps}")
 
-            with h5py.File(shells_resolved_dir / f"shell_{i:04d}.hdf5", "w") as out:
+            # --- deeper look on the first shell that has unmatched halos ---
+            if n_bad and len(summary) == 0 or (n_bad and not any(s[1] for s in summary)):
+                bad_ids = soap_idx_lc[~matched]
+                bad_mass = lc_mass[~matched]
+                good_mass = lc_mass[matched]
 
-                for key, value in fields_soap_tensor.items():
-                    tensors = soap_data[key][:]
-                    tensors_for_lightcone = tensors[lightcone_to_soap_data]
-                    tensors_for_lightcone_keep = tensors_for_lightcone[keep_lightcone]
+                print(f"\n=== shell {i}: first shell with unmatched halos ===")
+                print(f"  soap_idx sorted strictly increasing : {is_sorted}")
+                print(f"  soap_idx has duplicates             : "
+                      f"{soap_idx.size != np.unique(soap_idx).size}")
+                print(f"  lightcone IDs present in soap ID set: "
+                      f"{int(np.isin(soap_idx_lc, soap_idx).sum())} of {soap_idx_lc.size}")
+                print(f"  unmatched IDs   min/max : {bad_ids.min()} / {bad_ids.max()}")
+                print(f"  soap IDs        min/max : {soap_idx.min()} / {soap_idx.max()}")
+                print(f"  unmatched IDs below soap min : {int((bad_ids < soap_idx.min()).sum())}")
+                print(f"  unmatched IDs above soap max : {int((bad_ids > soap_idx.max()).sum())}")
+                print(f"  unmatched mass [1e10 Msun] min/median/max : "
+                      f"{bad_mass.min():.4g} / {np.median(bad_mass):.4g} / {bad_mass.max():.4g}")
+                if good_mass.size:
+                    print(f"  matched   mass [1e10 Msun] min/median/max : "
+                          f"{good_mass.min():.4g} / {np.median(good_mass):.4g} / {good_mass.max():.4g}")
+                # is SOAPIndex plausibly a row number rather than a catalogue ID?
+                print(f"  max SOAPIndex vs n_soap_rows : "
+                      f"{soap_idx_lc.max()} vs {soap_idx.size}")
+                print(f"  first 10 unmatched IDs : {bad_ids[:10]}")
+                print(f"  first 10 soap IDs      : {soap_idx[:10]}")
+                print()
 
-                    num_zero_tensors = np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1))
-                    print(f"Number of zero tensors in {key}: {num_zero_tensors}")
+            summary.append((i, n_bad, matched.size))
 
-                    tensors_keep_projected = np.array([
-                        project_tensor(tensor, los_vec(c)) for tensor, c in zip(tensors_for_lightcone_keep, coords_keep)
-                          ])
-                    out.create_dataset(value, data = tensors_keep_projected)
-
-                for key, value in fields_soap.items():
-                    data_array = soap_data[key][:]
-                    data_array_for_lightcone = data_array[lightcone_to_soap_data]
-                    out.create_dataset(value, data = data_array_for_lightcone[keep_lightcone])
-
-                for key, value in fields_lightcone.items():
-                    data_array = lightcone_shell[key][:]
-                    out.create_dataset(value, data = data_array[keep_lightcone])
-
-print("DONE")
+print("\n=== summary ===")
+tot_bad = sum(s[1] for s in summary)
+tot_all = sum(s[2] for s in summary)
+n_shells_bad = sum(1 for s in summary if s[1])
+print(f"shells processed        : {len(summary)}")
+print(f"shells with unmatched   : {n_shells_bad}")
+print(f"total unmatched halos   : {tot_bad} of {tot_all} ({tot_bad / tot_all:.4%})")
+if n_shells_bad:
+    print(f"shells affected         : {[s[0] for s in summary if s[1]]}")

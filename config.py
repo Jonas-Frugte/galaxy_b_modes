@@ -25,4 +25,4 @@ N_S     = 0.96
 
 # Multipole binning
 ELL_MIN, ELL_MAX = 2, 3000
-ELL = np.arange(ELL_MIN, ELL_MAX + 1)         # computed — YAML can't do this
+ELL = np.arange(ELL_MIN, ELL_MAX + 1)
