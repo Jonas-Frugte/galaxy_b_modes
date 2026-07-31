@@ -4,13 +4,18 @@ For each snapshot, streams a selected subset of SOAP halo properties off COSMA
 and writes one HDF5 file per snapshot. Selected: total & stellar mass, particle
 counts (total bound + per type), and all four stellar inertia tensors
 (iterative/non-iterative x full/reduced), plus the halo catalogue index for
-matching against the halo lightcone.
+matching against the halo lightcone, plus the HBT-HERONS TrackId for matching
+halo images across snapshots (replicated copies, mergers, etc.).
 
 Everything needed to interpret the numbers is preserved:
   - each dataset keeps its own attrs (unit exponents, CGS conversion factors,
     a/h-scale exponents, description);
   - the global /Units group (internal-unit -> CGS base factors) is copied;
   - the /Cosmology group (h, scale factor, redshift, Omegas) is copied.
+
+If a snapshot's output file already exists but is missing a field that was
+since added to `fields` (e.g. TrackId), the file is patched in place instead
+of being fully re-downloaded.
 """
 
 import hdfstream
@@ -41,6 +46,9 @@ fields = {
     "BoundSubhalo/StellarInertiaTensorReducedNoniterative": "stellar_inertia_tensor_reduced_noniterative",
     # Index for matching to the halo lightcone (its InputHalos/SOAPIndex).
     "InputHalos/HaloCatalogueIndex":                   "halo_catalogue_index",
+    # Persistent subhalo ID, consistent across snapshots. Needed to link
+    # copies of the same halo across box replications / lightcone shells.
+    "InputHalos/HBTplus/TrackId":                      "track_id",
 }
 
 # Global metadata groups to copy verbatim (attributes only).
@@ -51,22 +59,44 @@ n_snapshots = 79
 output_dir = config.SOAP_L2p8_m9
 output_dir.mkdir(parents=True, exist_ok=True)
 
+
+def download_field(src_file, path, name, out):
+    """Stream one field from the source file into an open output file."""
+    src = src_file[path]
+    dset = out.create_dataset(name, data=src[:])
+    for key in src.attrs.keys():
+        dset.attrs[key] = src.attrs[key]
+
+
 for i in range(n_snapshots):
     out_path = output_dir / f"halos_{i:04d}.hdf5"
-    if out_path.exists():                   # already downloaded -> skip
-        print(f"snapshot {i} already done, skipping")
+
+    if out_path.exists():
+        # Check which requested fields are already present.
+        with h5py.File(out_path, "r") as out:
+            missing = {path: name for path, name in fields.items()
+                       if name not in out}
+
+        if not missing:
+            print(f"snapshot {i} already done, skipping")
+            continue
+
+        # Patch in just the missing fields, in place.
+        print(f"snapshot {i}: patching in {list(missing.values())}")
+        file = soap_dir[f"halo_properties_{i:04d}.hdf5"]
+        with h5py.File(out_path, "a") as out:
+            for path, name in missing.items():
+                download_field(file, path, name, out)
+        print(f"snapshot {i} patched")
         continue
 
+    # Fresh download.
     file = soap_dir[f"halo_properties_{i:04d}.hdf5"]
 
     tmp_path = out_path.with_name(out_path.name + ".tmp")  # write temp first
     with h5py.File(tmp_path, "w") as out:
-        # Halo property datasets, each with its unit attrs carried over.
         for path, name in fields.items():
-            src = file[path]
-            dset = out.create_dataset(name, data=src[:])
-            for key in src.attrs.keys():
-                dset.attrs[key] = src.attrs[key]
+            download_field(file, path, name, out)
 
         # Global unit / cosmology metadata as attribute-only groups.
         for gname in meta_groups:
@@ -78,4 +108,4 @@ for i in range(n_snapshots):
     tmp_path.rename(out_path)               # rename only once fully written
     print(f"snapshot {i} done")
 
-print("All snapshots downloaded.")
+print("DONE")

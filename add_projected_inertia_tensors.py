@@ -1,7 +1,15 @@
 import numpy as np
 import h5py
 
-sim_name = "L1_m9"
+import config
+
+soap_dir = config.SOAP_L2p8_m9
+lightcone_dir = config.LIGHTCONE_L2p8_m9
+shells_resolved_dir = config.SHELLS_RESOLVED_L2p8_m9
+min_num_particles = config.MIN_NUM_PARTICLES_FOR_SHAPE
+
+# create dir if it doesn't already exist
+shells_resolved_dir.mkdir(parents=True, exist_ok=True) 
 
 def los_vec(halo_coord, origin = np.array([0, 0, 0])):
     halo_coord = np.array(halo_coord)
@@ -44,29 +52,77 @@ def project_tensor(tensor, los_vec):
     
     return [e_1, e_2]
 
-for i in range(42, 43):
-    with h5py.File(f"data/{sim_name}/shells/shell_{i:04d}.hdf5", "r") as shell:
-        soap_idx = shell["SOAP_indexes"][:]
-        tensors  = np.load(f"data/{sim_name}/stellar_inertia_tensors/stellar_inertia_tensors_{i:02d}.npy")
+# mapping from SOAP hdf5 files to projected shape tensor hdf5 file (all per shell)
+fields_lightcone = {
+    "halo_coords": "halo_coords",
+    "redshifts": "redshifts",
+    "SOAP_indexes": "SOAP_indexes" 
+}
+fields_soap = {
+    "total_mass": "masses",
+    "stellar_mass": "stellar_masses",
+    "halo_catalogue_index": "SOAP_index_from_SOAP_cat"
+}
+fields_soap_tensor = {
+    "stellar_inertia_tensor": "proj_tensors",
+    "stellar_inertia_tensor_noniterative": "proj_tensors_nonit",
+    "stellar_inertia_tensor_reduced": "proj_tensors_red",
+    "stellar_inertia_tensor_reduced_noniterative": "proj_tensors_red_nonit",
+}
+for i in range(79): # shell number
+    with h5py.File(lightcone_dir / f"shell_{i:04d}.hdf5", "r") as lightcone_shell:
+        soap_idx_lightcone = lightcone_shell["SOAP_indexes"][:]
 
-        resolved_rows = np.flatnonzero(~np.all(tensors == 0, axis=1))
-        keep = np.flatnonzero(np.isin(soap_idx, resolved_rows))   # resolved object positions
+        if len(soap_idx_lightcone) == 0:
+            print(f"Shell {i} empty, skipping")
+            continue
 
-        coords    = shell["halo_coords"][keep]      # h5py fancy-index reads only these rows
-        masses    = shell["masses"][keep]
-        redshifts = shell["redshifts"][keep]
-        soap_idx  = soap_idx[keep]
+        with h5py.File(soap_dir / f"halos_{i:04d}.hdf5", "r") as soap_data:
+            soap_idx_soap_data = soap_data["halo_catalogue_index"][:]
 
-    projected = np.array([project_tensor(tensors[s], los_vec(c))
-                          for s, c in zip(soap_idx, coords)])
+            # check redshift of soap_snapshot and redshift of lightcone shell first:
+            z_lc = lightcone_shell["redshifts"][:]
+            z_lc_min, z_lc_max = z_lc.min(), z_lc.max()
+            z_snap_soap = float(np.atleast1d(soap_data["Cosmology"].attrs["Redshift"])[0])
+            print(f"i={i}. redshift of lightcone shell: [{z_lc_min, z_lc_max}]. redshift of SOAP snapshot: {z_snap_soap}")
 
-    with h5py.File(f"data/{sim_name}/shells_resolved/shell_{i:04d}.hdf5", "w") as out:
-        out.create_dataset("halo_coords", data=coords)
-        out.create_dataset("masses", data=masses)
-        out.create_dataset("redshifts", data=redshifts)
-        out.create_dataset("SOAP_indexes", data=soap_idx)
-        out.create_dataset("projected_tensors", data=projected)
-    
-    print(f"Done with shell {i}. Num of unique galaxies: {len(resolved_rows)}.")
+            # the index is the same as the index of the lightcone, the value at each index is the corresponding row in the soap_data, so if you index a row from the soap table you get a new row mapped to the appropriate places to match the lightcone
+            if np.all(soap_idx_soap_data[:-1] < soap_idx_soap_data[1:]):
+                lightcone_to_soap_data = np.searchsorted(soap_idx_soap_data, soap_idx_lightcone)
+            else:
+                sorter = np.argsort(soap_idx_soap_data)
+                lightcone_to_soap_data = sorter[np.searchsorted(soap_idx_soap_data, soap_idx_lightcone, sorter=sorter)]
+
+            assert lightcone_to_soap_data.max() < soap_idx_soap_data.size, "lightcone ID beyond catalogue"
+            assert np.all(soap_idx_soap_data[lightcone_to_soap_data] == soap_idx_lightcone), "unmatched halo"
+
+            n_star_lightcone = soap_data["n_star_particles"][:][lightcone_to_soap_data]
+            keep_lightcone = n_star_lightcone > min_num_particles
+
+            coords_keep = lightcone_shell["halo_coords"][keep_lightcone]
+
+            with h5py.File(shells_resolved_dir / f"shell_{i:04d}.hdf5", "w") as out:
+
+                for key, value in fields_soap_tensor.items():
+                    tensors = soap_data[key][:]
+                    tensors_for_lightcone = tensors[lightcone_to_soap_data]
+                    tensors_for_lightcone_keep = tensors_for_lightcone[keep_lightcone]
+
+                    num_zero_tensors = np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1))
+                    print(f"Number of zero tensors in {key}: {num_zero_tensors}")
+
+                    tensors_keep_projected = np.array([
+                        project_tensor(tensor, los_vec(c)) for tensor, c in zip(tensors_for_lightcone_keep, coords_keep)
+                          ])
+                    out.create_dataset(value, data = tensors_keep_projected)
+
+                for key, value in fields_soap.items():
+                    data_array = soap_data[key][:]
+                    data_array_for_lightcone = data_array[lightcone_to_soap_data]
+                    out.create_dataset(value, data = data_array_for_lightcone[keep_lightcone])
+
+                for key, value in fields_lightcone.items():
+                    data_array = lightcone_shell[key][:]
+                    out.create_dataset(value, data = data_array[keep_lightcone])
 
 print("DONE")
