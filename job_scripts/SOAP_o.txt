@@ -1,0 +1,302 @@
+snapshot 0 done
+snapshot 1 done
+snapshot 2 done
+snapshot 3 done
+snapshot 4 done
+snapshot 5 done
+snapshot 6 done
+snapshot 7 done
+snapshot 8 done
+snapshot 9 done
+snapshot 10 done
+snapshot 11 done
+snapshot 12 done
+snapshot 13 done
+snapshot 14 done
+snapshot 15 done
+snapshot 16 done
+snapshot 17 done
+snapshot 18 done
+snapshot 19 done
+snapshot 20 done
+snapshot 21 done
+snapshot 22 done
+snapshot 23 done
+snapshot 24 done
+snapshot 25 done
+snapshot 26 done
+snapshot 27 done
+snapshot 28 done
+snapshot 29 done
+snapshot 30 done
+snapshot 31 done
+snapshot 32 done
+snapshot 33 done
+snapshot 34 done
+snapshot 35 done
+snapshot 36 done
+snapshot 37 done
+snapshot 38 done
+snapshot 39 done
+snapshot 40 done
+snapshot 41 done
+snapshot 42 done
+snapshot 43 done
+snapshot 44 done
+snapshot 45 done
+snapshot 46 done
+snapshot 47 done
+snapshot 48 done
+snapshot 49 done
+snapshot 50 done
+snapshot 51 done
+snapshot 52 done
+snapshot 53 done
+snapshot 54 done
+snapshot 55 done
+snapshot 56 done
+snapshot 57 done
+snapshot 58 done
+snapshot 59 done
+snapshot 60 done
+snapshot 61 done
+snapshot 62 done
+snapshot 0 already done, skipping
+snapshot 1 already done, skipping
+snapshot 2 already done, skipping
+snapshot 3 already done, skipping
+snapshot 4 already done, skipping
+snapshot 5 already done, skipping
+snapshot 6 already done, skipping
+snapshot 7 already done, skipping
+snapshot 8 already done, skipping
+snapshot 9 already done, skipping
+snapshot 10 already done, skipping
+snapshot 11 already done, skipping
+snapshot 12 already done, skipping
+snapshot 13 already done, skipping
+snapshot 14 already done, skipping
+snapshot 15 already done, skipping
+snapshot 16 already done, skipping
+snapshot 17 already done, skipping
+snapshot 18 already done, skipping
+snapshot 19 already done, skipping
+snapshot 20 already done, skipping
+snapshot 21 already done, skipping
+snapshot 22 already done, skipping
+snapshot 23 already done, skipping
+snapshot 24 already done, skipping
+snapshot 25 already done, skipping
+snapshot 26 already done, skipping
+snapshot 27 already done, skipping
+snapshot 28 already done, skipping
+snapshot 29 already done, skipping
+snapshot 30 already done, skipping
+snapshot 31 already done, skipping
+snapshot 32 already done, skipping
+snapshot 33 already done, skipping
+snapshot 34 already done, skipping
+snapshot 35 already done, skipping
+snapshot 36 already done, skipping
+snapshot 37 already done, skipping
+snapshot 38 already done, skipping
+snapshot 39 already done, skipping
+snapshot 40 already done, skipping
+snapshot 41 already done, skipping
+snapshot 42 already done, skipping
+snapshot 43 already done, skipping
+snapshot 44 already done, skipping
+snapshot 45 already done, skipping
+snapshot 46 already done, skipping
+snapshot 47 already done, skipping
+snapshot 48 already done, skipping
+snapshot 49 already done, skipping
+snapshot 50 already done, skipping
+snapshot 51 already done, skipping
+snapshot 52 already done, skipping
+snapshot 53 already done, skipping
+snapshot 54 already done, skipping
+snapshot 55 already done, skipping
+snapshot 56 already done, skipping
+snapshot 57 already done, skipping
+snapshot 58 already done, skipping
+snapshot 59 already done, skipping
+snapshot 60 already done, skipping
+snapshot 61 already done, skipping
+snapshot 62 already done, skipping
+snapshot 63 done
+snapshot 64 done
+snapshot 65 done
+snapshot 66 done
+snapshot 67 done
+snapshot 68 done
+snapshot 69 done
+snapshot 70 done
+snapshot 71 done
+snapshot 72 done
+snapshot 73 done
+snapshot 74 done
+snapshot 75 done
+snapshot 76 done
+snapshot 77 done
+snapshot 78 done
+All snapshots downloaded.
+snapshot 0: patching in ['track_id']
+snapshot 0 patched
+snapshot 1: patching in ['track_id']
+snapshot 1 patched
+snapshot 2: patching in ['track_id']
+snapshot 2 patched
+snapshot 3: patching in ['track_id']
+snapshot 3 patched
+snapshot 4: patching in ['track_id']
+snapshot 4 patched
+snapshot 5: patching in ['track_id']
+snapshot 5 patched
+snapshot 6: patching in ['track_id']
+snapshot 6 patched
+snapshot 7: patching in ['track_id']
+snapshot 7 patched
+snapshot 8: patching in ['track_id']
+snapshot 8 patched
+snapshot 9: patching in ['track_id']
+snapshot 9 patched
+snapshot 10: patching in ['track_id']
+snapshot 10 patched
+snapshot 11: patching in ['track_id']
+snapshot 11 patched
+snapshot 12: patching in ['track_id']
+snapshot 12 patched
+snapshot 13: patching in ['track_id']
+snapshot 13 patched
+snapshot 14: patching in ['track_id']
+snapshot 14 patched
+snapshot 15: patching in ['track_id']
+snapshot 15 patched
+snapshot 16: patching in ['track_id']
+snapshot 16 patched
+snapshot 17: patching in ['track_id']
+snapshot 17 patched
+snapshot 18: patching in ['track_id']
+snapshot 18 patched
+snapshot 19: patching in ['track_id']
+snapshot 19 patched
+snapshot 20: patching in ['track_id']
+snapshot 20 patched
+snapshot 21: patching in ['track_id']
+snapshot 21 patched
+snapshot 22: patching in ['track_id']
+snapshot 22 patched
+snapshot 23: patching in ['track_id']
+snapshot 23 patched
+snapshot 24: patching in ['track_id']
+snapshot 24 patched
+snapshot 25: patching in ['track_id']
+snapshot 25 patched
+snapshot 26: patching in ['track_id']
+snapshot 26 patched
+snapshot 27: patching in ['track_id']
+snapshot 27 patched
+snapshot 28: patching in ['track_id']
+snapshot 28 patched
+snapshot 29: patching in ['track_id']
+snapshot 29 patched
+snapshot 30: patching in ['track_id']
+snapshot 30 patched
+snapshot 31: patching in ['track_id']
+snapshot 31 patched
+snapshot 32: patching in ['track_id']
+snapshot 32 patched
+snapshot 33: patching in ['track_id']
+snapshot 33 patched
+snapshot 34: patching in ['track_id']
+snapshot 34 patched
+snapshot 35: patching in ['track_id']
+snapshot 35 patched
+snapshot 36: patching in ['track_id']
+snapshot 36 patched
+snapshot 37: patching in ['track_id']
+snapshot 37 patched
+snapshot 38: patching in ['track_id']
+snapshot 38 patched
+snapshot 39: patching in ['track_id']
+snapshot 39 patched
+snapshot 40: patching in ['track_id']
+snapshot 40 patched
+snapshot 41: patching in ['track_id']
+snapshot 41 patched
+snapshot 42: patching in ['track_id']
+snapshot 42 patched
+snapshot 43: patching in ['track_id']
+snapshot 43 patched
+snapshot 44: patching in ['track_id']
+snapshot 44 patched
+snapshot 45: patching in ['track_id']
+snapshot 45 patched
+snapshot 46: patching in ['track_id']
+snapshot 46 patched
+snapshot 47: patching in ['track_id']
+snapshot 47 patched
+snapshot 48: patching in ['track_id']
+snapshot 48 patched
+snapshot 49: patching in ['track_id']
+snapshot 49 patched
+snapshot 50: patching in ['track_id']
+snapshot 50 patched
+snapshot 51: patching in ['track_id']
+snapshot 51 patched
+snapshot 52: patching in ['track_id']
+snapshot 52 patched
+snapshot 53: patching in ['track_id']
+snapshot 53 patched
+snapshot 54: patching in ['track_id']
+snapshot 54 patched
+snapshot 55: patching in ['track_id']
+snapshot 55 patched
+snapshot 56: patching in ['track_id']
+snapshot 56 patched
+snapshot 57: patching in ['track_id']
+snapshot 57 patched
+snapshot 58: patching in ['track_id']
+snapshot 58 patched
+snapshot 59: patching in ['track_id']
+snapshot 59 patched
+snapshot 60: patching in ['track_id']
+snapshot 60 patched
+snapshot 61: patching in ['track_id']
+snapshot 61 patched
+snapshot 62: patching in ['track_id']
+snapshot 62 patched
+snapshot 63: patching in ['track_id']
+snapshot 63 patched
+snapshot 64: patching in ['track_id']
+snapshot 64 patched
+snapshot 65: patching in ['track_id']
+snapshot 65 patched
+snapshot 66: patching in ['track_id']
+snapshot 66 patched
+snapshot 67: patching in ['track_id']
+snapshot 67 patched
+snapshot 68: patching in ['track_id']
+snapshot 68 patched
+snapshot 69: patching in ['track_id']
+snapshot 69 patched
+snapshot 70: patching in ['track_id']
+snapshot 70 patched
+snapshot 71: patching in ['track_id']
+snapshot 71 patched
+snapshot 72: patching in ['track_id']
+snapshot 72 patched
+snapshot 73: patching in ['track_id']
+snapshot 73 patched
+snapshot 74: patching in ['track_id']
+snapshot 74 patched
+snapshot 75: patching in ['track_id']
+snapshot 75 patched
+snapshot 76: patching in ['track_id']
+snapshot 76 patched
+snapshot 77: patching in ['track_id']
+snapshot 77 patched
+snapshot 78: patching in ['track_id']
+snapshot 78 patched
+DONE

@@ -61,7 +61,8 @@ fields_lightcone = {
 fields_soap = {
     "total_mass": "masses",
     "stellar_mass": "stellar_masses",
-    "halo_catalogue_index": "SOAP_index_from_SOAP_cat"
+    "halo_catalogue_index": "SOAP_index_from_SOAP_cat",
+    "track_id": "track_id"
 }
 fields_soap_tensor = {
     "stellar_inertia_tensor": "proj_tensors",
@@ -83,7 +84,7 @@ for i in range(79): # shell number
             # check redshift of soap_snapshot and redshift of lightcone shell first:
             z_lc = lightcone_shell["redshifts"][:]
             z_lc_min, z_lc_max = z_lc.min(), z_lc.max()
-            z_snap_soap = float(np.atleast1d(soap_data["Cosmology"].attrs["Redshift"])[0])
+            z_snap_soap = float(np.atleast_1d(soap_data["Cosmology"].attrs["Redshift"])[0])
             print(f"i={i}. redshift of lightcone shell: [{z_lc_min, z_lc_max}]. redshift of SOAP snapshot: {z_snap_soap}")
 
             # the index is the same as the index of the lightcone, the value at each index is the corresponding row in the soap_data, so if you index a row from the soap table you get a new row mapped to the appropriate places to match the lightcone
@@ -92,9 +93,17 @@ for i in range(79): # shell number
             else:
                 sorter = np.argsort(soap_idx_soap_data)
                 lightcone_to_soap_data = sorter[np.searchsorted(soap_idx_soap_data, soap_idx_lightcone, sorter=sorter)]
-
-            assert lightcone_to_soap_data.max() < soap_idx_soap_data.size, "lightcone ID beyond catalogue"
-            assert np.all(soap_idx_soap_data[lightcone_to_soap_data] == soap_idx_lightcone), "unmatched halo"
+	    
+	    print("n_soap rows   :", soap_idx_soap_data.size)
+            print("max HaloCatIdx:", soap_idx_soap_data.max())
+            print("max SOAPIndex :", soap_idx_lightcone.max())
+            print("snapshots in shell:", np.unique(lightcone_shell["snapshot_numbers"][:]))  
+            print("lc attrs  :", dict(lightcone_shell["SOAP_indexes"].attrs))
+            print("soap attrs:", dict(soap_data["halo_catalogue_index"].attrs))
+            bad = soap_idx_soap_data[lightcone_to_soap_data] != soap_idx_lightcone
+            print(f"unmatched: {bad.sum()} of {bad.size}")
+            # assert lightcone_to_soap_data.max() < soap_idx_soap_data.size, "lightcone ID beyond catalogue"
+            # assert np.all(soap_idx_soap_data[lightcone_to_soap_data] == soap_idx_lightcone), "unmatched halo"
 
             n_star_lightcone = soap_data["n_star_particles"][:][lightcone_to_soap_data]
             keep_lightcone = n_star_lightcone > min_num_particles

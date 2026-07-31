@@ -1,0 +1,8 @@
+Shell 0 empty, skipping
+Shell 0 empty, skipping
+i=1. redshift of lightcone shell: [(np.float64(11.322611842999812), np.float64(13.32581633292386))]. redshift of SOAP snapshot: 12.260000000000002
+Number of zero tensors in stellar_inertia_tensor: 0
+Number of zero tensors in stellar_inertia_tensor_noniterative: 0
+Number of zero tensors in stellar_inertia_tensor_reduced: 0
+Number of zero tensors in stellar_inertia_tensor_reduced_noniterative: 0
+i=2. redshift of lightcone shell: [(np.float64(9.945007379157229), np.float64(11.319968453297331))]. redshift of SOAP snapshot: 10.379999999999999

@@ -1,0 +1,22 @@
+-bash: module: line 1: syntax error: unexpected end of file
+-bash: error importing function definition for `BASH_FUNC_module'
+Traceback (most recent call last):
+  File "/science-nfs-sys/vsm01/users/frugt001/galaxy_b_modes/add_projected_inertia_tensors.py", line 87, in <module>
+    z_snap_soap = float(np.atleast1d(soap_data["Cosmology"].attrs["Redshift"])[0])
+                        ^^^^^^^^^^^^
+  File "/nethome/frugt001/.conda/envs/b-modes/lib/python3.14/site-packages/numpy/__init__.py", line 769, in __getattr__
+    raise AttributeError(f"module {__name__!r} has no attribute {attr!r}")
+AttributeError: module 'numpy' has no attribute 'atleast1d'. Did you mean: 'atleast_1d'?
+-bash: module: line 1: syntax error: unexpected end of file
+-bash: error importing function definition for `BASH_FUNC_module'
+Traceback (most recent call last):
+  File "/science-nfs-sys/vsm01/users/frugt001/galaxy_b_modes/add_projected_inertia_tensors.py", line 98, in <module>
+    assert np.all(soap_idx_soap_data[lightcone_to_soap_data] == soap_idx_lightcone), "unmatched halo"
+           ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: unmatched halo
+-bash: module: line 1: syntax error: unexpected end of file
+-bash: error importing function definition for `BASH_FUNC_module'
+  File "/science-nfs-sys/vsm01/users/frugt001/galaxy_b_modes/add_projected_inertia_tensors.py", line 97
+    	    print("n_soap rows   :", soap_idx_soap_data.size)
+    ^
+TabError: inconsistent use of tabs and spaces in indentation
