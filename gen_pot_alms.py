@@ -11,7 +11,7 @@ cosmo = FlatLambdaCDM(H0=H0, Om0=OMEGA_M)
 def poisson_factor(chi):
     z = z_at_value(cosmo.comoving_distance, chi * u.Mpc).value
     a = 1.0 / (1.0 + z)
-    return -1 * (3 / 2) * OMEGA_M * H**2 / c**2 * chi**2 / a
+    return -1 * (3 / 2) * OMEGA_M * H0**2 / c**2 * chi**2 / a
 
 def matter_to_pot_der_alms(matter_map, chi_centr, lmax):
 
