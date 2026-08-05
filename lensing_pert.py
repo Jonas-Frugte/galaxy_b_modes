@@ -12,102 +12,6 @@ c = 299792.458 # km / s
 
 cosmo = FlatLambdaCDM(H0=H0, Om0=Omega_m)
 
-def poisson_factor(chi):
-    z = z_at_value(cosmo.comoving_distance, chi * u.Mpc).value
-    a = 1.0 / (1.0 + z)
-    return -1 * (3 / 2) * Omega_m * H0**2 / c**2 * chi**2 / a
-
-def kappa_gammaE_to_flexion(kappa_alms, gamma_E_alms, ells, lmax, nside_output):
-    """Build the spin-1 (F) and spin-3 (G) flexion maps from convergence and
-    shear-E alms, via curved-sky spin-raising.  F = edth kappa, G = edth gamma."""
-    kappa_to_F = np.zeros(lmax + 1)
-    kappa_to_F[2:] = np.sqrt(ells[2:] * (ells[2:] + 1))            # spin 0 -> 1
-    gammaE_to_G = np.zeros(lmax + 1)
-    gammaE_to_G[2:] = np.sqrt((ells[2:] - 2) * (ells[2:] + 3))     # spin 2 -> 3
-
-    F_alms = hp.almxfl(kappa_alms, kappa_to_F)
-    G_alms = hp.almxfl(gamma_E_alms, gammaE_to_G)
-    F1, F2 = hp.alm2map_spin([F_alms, np.zeros_like(F_alms)], nside_output, 1, lmax)
-    G1, G2 = hp.alm2map_spin([G_alms, np.zeros_like(G_alms)], nside_output, 3, lmax)
-    return F1, F2, G1, G2
-
-def flexion_to_D(F1, F2, G1, G2):
-    """Assemble the symmetric third-derivative tensor D_ijk (Bacon eqs 16-17)."""
-    D_ttt = -0.5 * (3 * F1 + G1)
-    D_ttp = -0.5 * (F2 + G2)
-    D_tpp = -0.5 * (F1 - G1)
-    D_ppp = -0.5 * (3 * F2 - G2)
-    return D_ttt, D_ttp, D_tpp, D_ppp
-
-def matter_to_pot_ders(matter_map, chi_centr, nside):
-    lmax = 400 # TODO: optimize later
-
-    # get alms of grav pot
-    delta_m_map = matter_map / np.mean(matter_map) - 1.0 # TODO: does this actually improve stuff?
-    delta_m_alms = hp.map2alm(delta_m_map, lmax=lmax)
-    ells = np.arange(lmax + 1)
-    # TODO: why not calculate for ell = 0, 1? check later
-    delta_m_2_pot_factors = np.zeros(lmax + 1)
-    delta_m_2_pot_factors[2:] = poisson_factor(chi_centr) / (ells[2:] * (ells[2:] + 1))
-    grav_pot_alms = hp.almxfl(delta_m_alms, delta_m_2_pot_factors)
-
-    # get gradient of grav pot
-    nside_output = 1024 # TODO: optimize later
-    pot_map, pot_t_map, pot_p_map = hp.alm2map_der1(grav_pot_alms, nside_output)
-
-    # get hessian of grav pot
-    # first get kappa and gamma of grav pot, bc they are easy to convert to in spher harm space
-    kappa_alms = hp.almxfl(grav_pot_alms, -0.5 * ells * (ells + 1))
-    pot_to_gamma_E_conversion = np.zeros(lmax + 1)
-    pot_to_gamma_E_conversion[2:] = -1 * 0.5 * np.sqrt((ells[2:] - 1) * ells[2:] * (ells[2:] + 1) * (ells[2:] + 2))
-    gamma_E_alms = hp.almxfl(grav_pot_alms, pot_to_gamma_E_conversion)
-
-    kappa_map = hp.alm2map(kappa_alms, nside_output, lmax=lmax)
-    # at this order gamma has no B modes
-    gamma1_map, gamma2_map = hp.alm2map_spin([gamma_E_alms, np.zeros_like(gamma_E_alms)], nside_output, 2, lmax)
-
-    # then get hessian of grav pot in terms of kappa and gamma
-    pot_tt_map = kappa_map + gamma1_map
-    pot_tp_map = gamma2_map
-    pot_pp_map = kappa_map - gamma1_map
-
-    # THIRD ORDER DERS
-    F1, F2, G1, G2 = kappa_gammaE_to_flexion(kappa_alms, gamma_E_alms, ells, lmax, nside_output)
-    pot_ttt_map, pot_ttp_map, pot_tpp_map, pot_ppp_map = flexion_to_D(F1, F2, G1, G2)
-
-    return pot_map, pot_t_map, pot_p_map, pot_tt_map, pot_tp_map, pot_pp_map, pot_ttt_map, pot_ttp_map, pot_tpp_map, pot_ppp_map, nside_output
-
-chis = []
-pot_maps = []
-pot_i_maps = []
-pot_ij_maps = []
-pot_ijk_maps = []
-print("Generating grav pot der maps...")
-for i in tqdm(range(60)):
-    # loading mass maps into memory
-    # increasing index <-> increasing chi
-    # the mass here is actually total amount of mass per pixel. because we work with delta_m instead of mass density directly
-    # the conversion factor from mass per pixel to mass per 3D unit area (mass density) cancels out so we can just use it as is
-    shell_file = h5py.File(f"data/mass_maps_1024/map_{i}.hdf5", "r")
-    mass_map = shell_file["mass_density"][:].astype(np.float16)
-    chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
-    chis.append(chi_centr)
-    shell_file.close()
-
-    pot_map, pot_th_map, pot_ph_map, pot_thth_map, pot_thph_map, pot_phph_map, pot_ttt_map, pot_ttp_map, pot_tpp_map, pot_ppp_map, nside_pot = matter_to_pot_ders(mass_map, chi_centr, 1024)
-
-    pot_i_maps.append(np.array([pot_th_map, pot_ph_map]).astype(np.float16)) # TODO: check if float16 is really necessary
-    pot_ij_maps.append(np.array([pot_thth_map, pot_thph_map, pot_phph_map]).astype(np.float16)) # TODO: check if float16 is really necessary
-    pot_ijk_maps.append(np.array([pot_ttt_map, pot_ttp_map, pot_tpp_map, pot_ppp_map]).astype(np.float16))
-
-chis = np.array(chis)
-pot_i_maps = np.array(pot_i_maps, dtype=np.float16) # TODO: check if float16 is really necessary
-pot_ij_maps = np.array(pot_ij_maps, dtype=np.float16) # TODO: check if float16 is really necessary
-pot_ijk_maps = np.array(pot_ijk_maps, dtype=np.float16)
-
-
-print("Created grav pot der maps.")
-
 def symm_mat_index_2d(i, j):
     return i + j
         
@@ -174,17 +78,19 @@ def lensing_int(theta, phi, chi_s, order = 1):
         hp.get_interp_val(pot_ijk_maps[a, b, :], theta, phi)       
     for b in range(4)] for a in range(nshell)]) / chis[:, np.newaxis, np.newaxis]**3 # nshell * 4 * ngal
     
-    delta_angle = np.zeros((ngal, 2))
+    delta_angle_1 = np.zeros((ngal, 2))
     for i in range(2):                        # two transverse components
         integrand = window_func_weights_delta_angle * der_1[:, i, :]      # (nshell * ngal) window * Phi_,i (use that window function is < 0 for chi > chi_s)
-        delta_angle[:, i] = -2.0 * (w_simpson @ integrand)   # (nshell,) @ (nshell, ngal) -> (ngal,)
+        delta_angle_1[:, i] = -2.0 * (w_simpson @ integrand)   # (nshell,) @ (nshell, ngal) -> (ngal,)
         
-    psi_ij = np.zeros((ngal, 2, 2))
+    psi_ij_1 = np.zeros((ngal, 2, 2))
     for i in range(2):
         for j in range(2):
             integrand = window_func_weights_delta_angle * chis[:, np.newaxis] * der_2[:, symm_mat_index_2d(i, j), :]     # (nshell * ngal) window * chi * Phi_,ij (window function is the same but you get extra chi factor)
-            psi_ij[:, i, j] = -2.0 * (w_simpson @ integrand)    
+            psi_ij_1[:, i, j] = -2.0 * (w_simpson @ integrand)    
 
+    delta_angle_2 = np.zeros((ngal, 2))
+    psi_ij_2 = np.zeros((ngal, 2, 2))
     if order >= 2:
         # delta_angle_correction
         for i in range(2):
@@ -194,7 +100,7 @@ def lensing_int(theta, phi, chi_s, order = 1):
             integrand_term2 = der_2[:, np.newaxis, symm_mat_index_2d(i, 1), :] * der_1[np.newaxis, :, 1, :]
             integrand = integrand_prefactor * (integrand_term1 + integrand_term2)
 
-            delta_angle[:, i] += 4.0 * np.einsum('a,ab,abn->n', w_simpson, w_simpson_triangular, integrand)
+            delta_angle_2[:, i] = delta_angle_1 + 4.0 * np.einsum('a,ab,abn->n', w_simpson, w_simpson_triangular, integrand)
 
         # psi_ij correction
         for i in range(2):
@@ -207,9 +113,10 @@ def lensing_int(theta, phi, chi_s, order = 1):
                 integrand_term4 = chis[:, np.newaxis, np.newaxis] * der_3[:, np.newaxis, symm_mat_index_3d(i, j, 1), :] * der_1[np.newaxis, :, 1, :]
                 integrand = integrand_prefactor * (integrand_term1 + integrand_term2 + integrand_term3 + integrand_term4)
 
-                psi_ij[:, i, j] += -4.0 * np.einsum('a,ab,abn->n', w_simpson, w_simpson_triangular, integrand)
+                psi_ij_2[:, i, j] = psi_ij_1 + -4.0 * np.einsum('a,ab,abn->n', w_simpson, w_simpson_triangular, integrand)
 
-    return delta_angle, psi_ij
+    # so if order = 1, then return delta_angle_2 and psi_ij_2 as zero arrays
+    return delta_angle_1, psi_ij_1, delta_angle_2, psi_ij_2
 
 def new_coords(theta_old, phi_old, radius_old, delta_angle):
     theta_new = theta_old + delta_angle[:, 0]
@@ -282,8 +189,7 @@ def lens_catalogue(filenames, batch_size=10000):
                 sl = slice(start, start + batch_size)
                 th, ph, rad = theta_arr[sl], phi_arr[sl], radius[sl]
 
-                delta_angle_1o[sl], psi_ij_1o[sl] = lensing_int(th, ph, rad, order=1)
-                delta_angle_2o[sl], psi_ij_2o[sl] = lensing_int(th, ph, rad, order=2)
+                delta_angle_1o[sl], psi_ij_1o[sl], delta_angle_2o[sl], psi_ij_2o[sl] = lensing_int(th, ph, rad, order=2)
 
             # derived lensed quantities (cheap, vectorized over the whole catalogue)
             lensed_coords_1o = new_coords(theta_arr, phi_arr, radius, delta_angle_1o)
@@ -328,6 +234,6 @@ if __name__ == "__main__":
         for start in range(0, npix, batch_size):
             sl = slice(start, min(start + batch_size, npix))
             chi_s_batch = np.full(sl.stop - sl.start, rad)
-            _, psi_batch = lensing_int(th[sl], ph[sl], chi_s_batch, order=2)
+            _, _, _, psi_batch = lensing_int(th[sl], ph[sl], chi_s_batch, order=2)
             omega_map[sl] = 0.5 * (psi_batch[:, 1, 0] - psi_batch[:, 0, 1])
         np.save(f"data/omega_zsource{redshift:.1f}_l400cutoff.npy", omega_map)

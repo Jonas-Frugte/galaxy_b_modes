@@ -5,7 +5,7 @@ import pymaster as nmt
 import matplotlib.pyplot as plt
 
 def check_ders():
-    import lensing_perturbative as lp
+    import lensing_pert as lp
     # check derivatives and hessian of potential
 
     # ----- analytic test field: Phi(n) = n^T A n  (pure ell=2 for this A) -----
@@ -75,7 +75,7 @@ def check_ders():
     return None
 
 def test_flexion():
-    from lensing_perturbative import kappa_gammaE_to_flexion
+    from lensing_pert import kappa_gammaE_to_flexion
     nside = 512
     lmax = 2 * nside
     ells = np.arange(lmax + 1)
