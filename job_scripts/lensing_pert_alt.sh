@@ -12,4 +12,4 @@ cd /nethome/frugt001/galaxy_b_modes
 export OMP_NUM_THREADS=$PBS_NUM_PPN
 
 conda activate b-modes
-python3 -u gen_pot_alms.py
+python3 -u lensing_pert_alt.py
