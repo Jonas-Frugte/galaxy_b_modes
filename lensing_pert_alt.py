@@ -224,7 +224,7 @@ def lens_catalogue(order=2):
         print(f"processing shell {sh}")
         with h5py.File(in_path, "r") as gal_shell:
             gal_pos_old = gal_shell["halo_coords"][:]          # (ngal, 3)
-            shape_old   = gal_shell["projected_tensors"][:]    # (ngal, 2)
+            shape_old   = gal_shell[config.SHAPE_TYPE_FOR_LENS][:]    # (ngal, 2)
             track_id    = gal_shell["track_id"][:]             # (ngal,) alignment check
         ngal = len(gal_pos_old)
 
@@ -264,7 +264,6 @@ def lens_catalogue(order=2):
         import resource
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9   # GB on macOS
         print(f"  done ({ngal} galaxies, peak RAM {peak:.1f} GB)")
-
 
 if __name__ == "__main__":
     lens_catalogue()
