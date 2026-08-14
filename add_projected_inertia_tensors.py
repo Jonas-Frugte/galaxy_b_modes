@@ -3,13 +3,11 @@ import h5py
 
 import config
 
-soap_dir = config.SOAP_L2p8_m9
-lightcone_dir = config.LIGHTCONE_L2p8_m9
-shells_resolved_dir = config.SHELLS_RESOLVED_L2p8_m9
+soap_dir = config.SOAP
+lightcone_dir = config.LIGHTCONE
 min_num_particles = config.MIN_NUM_PARTICLES_FOR_SHAPE
 
-# create dir if it doesn't already exist
-shells_resolved_dir.mkdir(parents=True, exist_ok=True) 
+config.SHELLS_RESOLVED.parent.mkdir(parents=True, exist_ok=True)
 
 def los_vec(halo_coord, origin = np.array([0, 0, 0])):
     halo_coord = np.array(halo_coord)
@@ -71,8 +69,12 @@ fields_soap_tensor = {
     "stellar_inertia_tensor_reduced": "proj_tensors_red",
     "stellar_inertia_tensor_reduced_noniterative": "proj_tensors_red_nonit",
 }
-for i in range(79): # shell number
-    with h5py.File(lightcone_dir / f"shell_{i:04d}.hdf5", "r") as lightcone_shell:
+
+out_fields = {value: [] for value in
+              list(fields_soap_tensor.values()) + list(fields_soap.values()) + list(fields_lightcone.values())}
+
+for i in range(79): # snapshot number
+    with h5py.File(lightcone_dir / config.SHELL_NAME(i), "r") as lightcone_shell:
         soap_row_idx_lightcone = lightcone_shell["SOAP_indexes"][:]
 
         if len(soap_row_idx_lightcone) == 0:
@@ -98,24 +100,27 @@ for i in range(79): # shell number
 
             coords_keep = lightcone_shell["halo_coords"][keep_lightcone]
 
-            with h5py.File(shells_resolved_dir / f"shell_{i:04d}.hdf5", "w") as out:
-                uniq, inv = np.unique(soap_row_idx_lightcone[keep_lightcone], return_inverse=True)
+            uniq, inv = np.unique(soap_row_idx_lightcone[keep_lightcone], return_inverse=True)
 
-                for key, value in fields_soap_tensor.items():
-                    tensors_for_lightcone_keep = soap_data[key][uniq][inv]
-                    num_zero_tensors = np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1))
-                    print(f"Number of zero tensors in {key}: {num_zero_tensors}")
+            for key, value in fields_soap_tensor.items():
+                tensors_for_lightcone_keep = soap_data[key][uniq][inv]
+                num_zero_tensors = np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1))
+                print(f"Number of zero tensors in {key}: {num_zero_tensors}")
 
-                    tensors_keep_projected = np.array([
-                        project_tensor(tensor, los_vec(c)) for tensor, c in zip(tensors_for_lightcone_keep, coords_keep)
-                          ])
-                    out.create_dataset(value, data = tensors_keep_projected)
+                tensors_keep_projected = np.array([
+                    project_tensor(tensor, los_vec(c)) for tensor, c in zip(tensors_for_lightcone_keep, coords_keep)
+                      ])
+                out_fields[value].append(tensors_keep_projected)
 
-                for key, value in fields_soap.items():
-                    out.create_dataset(value, data = soap_data[key][uniq][inv])
+            for key, value in fields_soap.items():
+                out_fields[value].append(soap_data[key][uniq][inv])
 
-                for key, value in fields_lightcone.items():
-                    data_array = lightcone_shell[key][:]
-                    out.create_dataset(value, data = data_array[keep_lightcone])
+            for key, value in fields_lightcone.items():
+                data_array = lightcone_shell[key][:]
+                out_fields[value].append(data_array[keep_lightcone])
+
+with h5py.File(config.SHELLS_RESOLVED, "w") as out:
+    for value, chunks in out_fields.items():
+        out.create_dataset(value, data=np.concatenate(chunks, axis=0))
 
 print("DONE")

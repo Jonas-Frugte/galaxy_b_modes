@@ -4,7 +4,7 @@ import h5py
 from astropy.cosmology import FlatLambdaCDM, z_at_value
 import astropy.units as u
 from tqdm import tqdm
-from config import POT_DER_ALMS_L2p8_m9, MASS_MAP_L2p8_m9, OMEGA_M, H0, c, NSIDE_OUTPUT_POT_DER_MAPS
+from config import POT_DER_ALMS, MASS_MAP, OMEGA_M, H0, c, NSIDE_OUTPUT_POT_DER_MAPS, NSHELL_MASS_MAPS, SHELL_NAME
 
 cosmo = FlatLambdaCDM(H0=H0, Om0=OMEGA_M)
 
@@ -59,8 +59,8 @@ def pot_der_alms_from_FLAMINGO(nside_output=NSIDE_OUTPUT_POT_DER_MAPS):
         # increasing index <-> increasing chi
         # the mass here is actually total amount of mass per pixel. because we work with delta_m instead of mass density directly
         # the conversion factor from mass per pixel to mass per 3D unit area (mass density) cancels out so we can just use it as is
-        shell_file = h5py.File(MASS_MAP_L2p8_m9 / f"map_{i}.hdf5", "r")
-        mass_map = shell_file["mass_density"][:].astype(np.float32)
+        shell_file = h5py.File(MASS_MAP / f"map_{i}.hdf5", "r")
+        mass_map = shell_file["total_mass"][:].astype(np.float32)
         chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
         chis[i] = chi_centr
         shell_file.close()
@@ -69,19 +69,52 @@ def pot_der_alms_from_FLAMINGO(nside_output=NSIDE_OUTPUT_POT_DER_MAPS):
 
     return grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms
 
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"chis.npy", chis)
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"grad_alms.npy", grad_alms)
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"kappa_alms.npy", kappa_alms)
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"gammaE_alms.npy", gammaE_alms)
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"F_alms.npy", F_alms)
-    # np.save(POT_DER_ALMS_L2p8_m9 / f"G_alms.npy", G_alms)
+    # np.save(POT_DER_ALMS / f"chis.npy", chis)
+    # np.save(POT_DER_ALMS / f"grad_alms.npy", grad_alms)
+    # np.save(POT_DER_ALMS / f"kappa_alms.npy", kappa_alms)
+    # np.save(POT_DER_ALMS / f"gammaE_alms.npy", gammaE_alms)
+    # np.save(POT_DER_ALMS / f"F_alms.npy", F_alms)
+    # np.save(POT_DER_ALMS / f"G_alms.npy", G_alms)
 
 def pot_der_alms_from_FLAMINGO_per_shell(sh, nside_output=NSIDE_OUTPUT_POT_DER_MAPS):
     lmax = 2 * nside_output
 
-    shell_file = h5py.File(MASS_MAP_L2p8_m9 / f"map_{sh}.hdf5", "r")
-    mass_map = shell_file["mass_density"][:].astype(np.float32)
+    shell_file = h5py.File(MASS_MAP / f"map_{sh}.hdf5", "r")
+    mass_map = shell_file["total_mass"][:].astype(np.float32)
     chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
     shell_file.close()
 
     return matter_to_pot_der_alms(mass_map, chi_centr, lmax)
+
+def get_stored_alms(sh):
+    with h5py.File(POT_DER_ALMS / SHELL_NAME(sh), "r") as f:
+        gradalms = f["grad_alms"][:]
+        kappaalms = f["kappa_alms"][:]
+        gammaEalms = f["gammaE_alms"][:]
+        Falms = f["F_alms"][:]
+        Galms = f["G_alms"][:]
+    return gradalms, kappaalms, gammaEalms, Falms, Galms
+
+if __name__ == "__main__":
+    POT_DER_ALMS.mkdir(parents=True, exist_ok=True)
+
+    for sh in tqdm(range(NSHELL_MASS_MAPS)):
+        out_path = POT_DER_ALMS / SHELL_NAME(sh)
+        if out_path.exists():
+            print(f"shell {sh} already done, skipping")
+            continue
+
+        grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms = pot_der_alms_from_FLAMINGO_per_shell(sh)
+
+        tmp_path = out_path.with_name(out_path.name + ".tmp")
+        with h5py.File(tmp_path, "w") as out:
+            out.create_dataset("grad_alms", data=grad_alms.astype(np.complex64))
+            out.create_dataset("kappa_alms", data=kappa_alms.astype(np.complex64))
+            out.create_dataset("gammaE_alms", data=gammaE_alms.astype(np.complex64))
+            out.create_dataset("F_alms", data=F_alms.astype(np.complex64))
+            out.create_dataset("G_alms", data=G_alms.astype(np.complex64))
+            out.attrs["shell_index"] = sh
+        tmp_path.rename(out_path)
+        print(f"shell {sh}: wrote {out_path}")
+
+    print(f"done, wrote alms for {NSHELL_MASS_MAPS} shells to {POT_DER_ALMS}")

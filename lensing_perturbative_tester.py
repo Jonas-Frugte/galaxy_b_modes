@@ -4,6 +4,8 @@ import h5py
 import pymaster as nmt
 import matplotlib.pyplot as plt
 
+import config
+
 def check_ders():
     import lensing_pert as lp
     # check derivatives and hessian of potential
@@ -225,26 +227,34 @@ def test_flexion_G():
 
 from rotation_lps import get_rotation_power
 
-def plot_omega_cl(filenames, z_source=1.0):
-
-    if isinstance(filenames, str):
-        filenames = [filenames]
+def plot_omega_cl(z_source=1.0):
 
     plt.figure()
-    for filename in filenames:
-        omega = np.load(filename)
-        omega_alm = hp.map2alm(omega)
-        cl = hp.alm2cl(omega_alm)
-        lmax = len(cl)
-        ls = np.arange(lmax)
+
+    with h5py.File(config.LENSED_SHELLS, "r") as f:
+        psi_ij_2o = f["psi_ij_2o"][:]
+    with h5py.File(config.SHELLS_RESOLVED, "r") as f:
+        coords = f["halo_coords"][:]
+    
+    nside = 128
+    lmax = 2 * nside
+
+    omega = 0.5 * (psi_ij_2o[:, 1, 0] - psi_ij_2o[:, 0, 1])
+    omega_alm = hp.map2alm(omega, lmax=lmax)
+    cl = hp.alm2cl(omega_alm)
+    ls = np.arange(len(cl))
 
     plt.loglog(ls, cl,   label=r"$C_\ell^{\omega\omega}$ post-Born (measured)")
 
     # analytic CAMB post-Born rotation spectrum
     L_th, cl_th = get_rotation_power(z_source=z_source, lmax=4000)
     plt.loglog(L_th, cl_th, "--", label=r"$C_\ell^{\omega\omega}$ CAMB")
+
+    sigma = cl_th * np.sqrt(2.0 / (2 * L_th + 1))
+    plt.fill_between(L_th, cl_th - sigma, cl_th + sigma, alpha=0.2, color="C1", label=r"$\pm1\sigma$ sample variance")
+
     plt.xlabel(r"$\ell$"); plt.ylabel(r"$C_\ell^{\omega\omega}$")
-    plt.title(f"nside={256}, $z_s$={z_source}")
+    plt.title(f"nside={nside}, $z_s$={z_source}")
     plt.legend()
     plt.show()
 
@@ -257,4 +267,4 @@ def plot_omega_cl(filenames, z_source=1.0):
 
 
 if __name__ == "__main__":
-    plot_omega_cl("data/omega_zsource2.0_l400cutoff.npy", z_source=2.0)
+    plot_omega_cl()

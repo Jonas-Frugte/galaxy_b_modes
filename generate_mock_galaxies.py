@@ -2,60 +2,43 @@ import h5py
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM, z_at_value
 import astropy.units as u
+from typing import Literal
+import healpy as hp
 
-# MUST match the pipeline's cosmology — halo_coords radius is the chi_s that
-# lensing_int integrates to, so it has to be the same distance-redshift relation.
-cosmo = FlatLambdaCDM(H0=68.1, Om0=0.306)
+import config
 
-z0, beta = 0.64, 1.5
-nz_unnorm = lambda z: z**2 * np.exp(-(z / z0)**beta)
+rng = np.random.default_rng(42)
 
-# normalize n(z) so it integrates to 1 over z
-import scipy.integrate
-norm = scipy.integrate.quad(nz_unnorm, 1e-8, 20)[0]
-def galaxy_density_z(z):
-    return nz_unnorm(z) / norm
-
-def redshift_at_chi(chi):
-    return z_at_value(cosmo.comoving_distance, chi * u.Mpc).value
-
-def galaxy_density_chi(chi):
-    # n(chi) = n(z) |dz/dchi|, transforming the normalized n(z) to a density in chi
-    dchi = 0.1
-    z = redshift_at_chi(chi)
-    dz_dchi = abs(redshift_at_chi(chi + dchi) - z) / dchi
-    return galaxy_density_z(z) * dz_dchi
-
-if __name__ == "__main__":
-    num_gals = int(1e6)
-    intrinsic_shape_sigma = 0.0     # 0.0 = pure lensing
-
-    rng = np.random.default_rng(42)
-
-    # ---- sample redshifts by inverse-CDF (no rejection, no singularities) ----
-    # z_grid = np.linspace(1e-6, 5.0, 200000)
-    # cdf = np.cumsum(nz_unnorm(z_grid)); cdf /= cdf[-1]
-    # redshifts = np.interp(rng.random(num_gals), cdf, z_grid)
-    z_source_fixed = 0.5
-    redshifts = np.full(num_gals, z_source_fixed)
-    chi = cosmo.comoving_distance(redshifts).value          # Mpc
-    print(cosmo.comoving_distance([0.5, 1.0, 2.0]).value)
-
-    # ---- uniform positions on the sphere (cos theta uniform, NOT theta uniform) ----
-    theta = np.arccos(1.0 - 2.0 * rng.random(num_gals))     # [0, pi]
-    phi   = 2.0 * np.pi * rng.random(num_gals)              # [0, 2pi)
+def nhat_sample(ngals: int) -> np.ndarray:
+    theta = np.arccos(1.0 - 2.0 * rng.random(ngals))     # [0, pi]
+    phi   = 2.0 * np.pi * rng.random(ngals)              # [0, 2pi)
     nhat  = np.array([np.sin(theta) * np.cos(phi),
                     np.sin(theta) * np.sin(phi),
                     np.cos(theta)])                         # (3, N)
-    halo_coords = (chi * nhat).T                             # (N, 3), |coords| = chi
+    return nhat
 
-    # ---- intrinsic shapes (projected_tensors = [e1, e2]) ----
+def nhat_sample_uniform(nside: int) -> np.ndarray:
+    return np.array(hp.pix2vec(nside, np.arange(hp.nside2npix(nside))))
+
+def z_sample(ngals: int, z_delta: float = None) -> np.ndarray:
+    if z_delta == None:
+        z_grid = np.linspace(1e-6, 5.0, 200000)
+        cdf = np.cumsum(config.GAL_DENS_Z(z_grid))
+        cdf /= cdf[-1]
+        zs = np.interp(rng.random(ngals), cdf, z_grid)
+    else:
+        zs = np.full(ngals, z_delta)
+
+    chis = config.COSMO.comoving_distance(zs).value          # Mpc
+    return zs, chis
+
+def shape_sample(ngals: int, intrinsic_shape_sigma: float = 0.0) -> np.ndarray:
     if intrinsic_shape_sigma > 0.0:
         # generate random angle and magnitude of ellipticity
-        phi_e = 2.0 * np.pi * np.random.rand(num_gals)
+        phi_e = 2.0 * np.pi * np.random.rand(ngals)
         # for the magnitude the correct distribution is the Rayleigh distribution
         # it is the distribution of the size of a vector with components that are independently normally distributed
-        e_mag = np.random.rayleigh(intrinsic_shape_sigma, size=num_gals)
+        e_mag = np.random.rayleigh(intrinsic_shape_sigma, size=ngals)
         bad = e_mag >= 1.0
         while bad.any():
             e_mag[bad] = rng.rayleigh(intrinsic_shape_sigma, size = bad.sum())
@@ -65,12 +48,38 @@ if __name__ == "__main__":
         # bc of the resampling the effective distribution of e_i is slightly different, so we check that the std is still close to what we wanted
         print(f"Real standard deviation of e_1, e_2 after resampling: {np.std(projected_tensors[:, 0]):.3f}, {np.std(projected_tensors[:, 1]):.3f}")
     else:
-        projected_tensors = np.zeros((num_gals, 2))
+        projected_tensors = np.zeros((ngals, 2))
 
-    # with h5py.File(f"data/mock_catalogue_s{intrinsic_shape_sigma:.2f}_1e{np.log10(num_gals):.0f}gals_z{z_source_fixed:.1f}.hdf5", "w") as out:
-    #     out.create_dataset("halo_coords",       data=halo_coords.astype(np.float64))
-    #     out.create_dataset("redshifts",         data=redshifts.astype(np.float64))
-    #     out.create_dataset("projected_tensors", data=projected_tensors.astype(np.float32))
+    return projected_tensors
 
-    # print(f"wrote {num_gals} mock sources; z in [{redshifts.min():.2f},{redshifts.max():.2f}], "
-    #     f"chi in [{chi.min():.0f},{chi.max():.0f}] Mpc")
+def save_mock(zs: np.ndarray, chis: np.ndarray, nhats: np.ndarray, shapes: np.ndarray):
+    halo_coords = (chis * nhats).T
+    ngals = len(zs)
+    track_id = np.arange(ngals)
+
+    config.SHELLS_RESOLVED.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(config.SHELLS_RESOLVED, "w") as out:
+        out.create_dataset("halo_coords", data=halo_coords)
+        out.create_dataset("redshifts", data=zs)
+        out.create_dataset("track_id", data=track_id)
+        out.create_dataset("proj_tensors", data=shapes)
+
+    print(f"wrote {ngals} galaxies to {config.SHELLS_RESOLVED}, "
+          f"z in [{zs.min():.3f}, {zs.max():.3f}], chi in [{chis.min():.1f}, {chis.max():.1f}] Mpc")
+
+if __name__ == "__main__":
+    ngals = int(1e6)
+    intrinsic_shape_sigma = 0.3    # 0.0 = pure lensing
+    nside = None
+    z_delta = None
+
+    if nside == None:
+        nhats = nhat_sample(ngals)
+    elif type(nside) == int:
+        nhats = nhat_sample_uniform(nside)
+        ngals = nhats.shape[1] # nhats has shape (3, ngals)
+
+    zs, chis = z_sample(ngals, z_delta=z_delta)
+    shapes = shape_sample(ngals, intrinsic_shape_sigma)
+
+    save_mock(zs, chis, nhats, shapes)

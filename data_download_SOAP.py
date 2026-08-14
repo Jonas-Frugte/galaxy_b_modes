@@ -56,7 +56,7 @@ meta_groups = ["Units", "Cosmology"]
 
 n_snapshots = 79
 
-output_dir = config.SOAP_L2p8_m9
+output_dir = config.SOAP
 output_dir.mkdir(parents=True, exist_ok=True)
 
 

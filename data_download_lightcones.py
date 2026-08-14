@@ -51,7 +51,7 @@ meta_groups = ["Units", "Cosmology"]
 
 n_shells = 79
 
-output_dir = config.LIGHTCONE_L2p8_m9
+output_dir = config.LIGHTCONE
 output_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -76,7 +76,7 @@ def copy_meta_groups(src_file, out):
 
 
 for i in range(n_shells):
-    shell_path = output_dir / f"shell_{i:04d}.hdf5"
+    shell_path = output_dir / config.SHELL_NAME(i)
 
     if shell_path.exists():
         # Check which requested fields are already present.

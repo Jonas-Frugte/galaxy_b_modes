@@ -1,3 +1,4 @@
+import os
 import healpy as hp
 import numpy as np
 import h5py
@@ -9,14 +10,26 @@ import gen_pot_alms
 import config
 
 def synth(alm, spin, lmax, loc, nthreads=1):
+    epsilon=1e-6
+    assert alm.shape[-1] == hp.Alm.getsize(lmax), "alm array not packed for this lmax"
+
     if spin == 0:
         return synthesis_general(
             alm=alm.reshape(1, -1), spin=0, lmax=lmax,
-            loc=loc, epsilon=1e-8, nthreads=nthreads)[0]        # single array
+            loc=loc, epsilon=epsilon, nthreads=nthreads)[0]        # single array
     almEB = np.stack([alm, np.zeros_like(alm)])                 # E, B=0
     return synthesis_general(
         alm=almEB, spin=spin, lmax=lmax,
-        loc=loc, epsilon=1e-8, nthreads=nthreads)               # (2, npoints)
+        loc=loc, epsilon=epsilon, nthreads=nthreads)               # (2, npoints)
+
+def truncate_alm(alm, lmax_old, lmax_new):
+    out = np.zeros(hp.Alm.getsize(lmax_new), dtype=alm.dtype)
+    for m in range(lmax_new + 1):
+        n = lmax_new - m + 1
+        src = hp.Alm.getidx(lmax_old, m, m)
+        dst = hp.Alm.getidx(lmax_new, m, m)
+        out[dst:dst + n] = alm[src:src + n]
+    return out
 
 def symm_mat_index_2d(i, j):
     return i + j
@@ -54,20 +67,20 @@ def simpson_weights(x):
         w[-1] += h/2
     return w
 
-
-def lensing_int(theta, phi, chi_s, order=1):
+def lensing_int(theta, phi, chi_s, order=1, alms_from_stored=False, nthreads=os.cpu_count(), lmax_cut=None):
     '''
     theta, phi, chi_s : array of floats, all of length ngal
     '''
 
-    chis = np.load(config.CHIS_MASS_MAP_L2p8_m9)
+    chis = np.load(config.CHIS_MASS_MAP)
     assert np.all((chis[1:] - chis[:-1]) > 0) # chis needs to be increasing
 
     w_simpson = simpson_weights(chis)
-    lmax = 2 * config.NSIDE_OUTPUT_POT_DER_MAPS
+    lmax_full = 2 * config.NSIDE_OUTPUT_POT_DER_MAPS
+    lmax = lmax_cut if lmax_cut is not None else lmax_full
 
     loc = np.array([theta, phi]).T
-    window_func_weights_delta_angle = np.maximum(1.0 - chis[:, np.newaxis] / chi_s, 0.0)
+    # window_func_weights_delta_angle = np.maximum(1.0 - chis[:, np.newaxis] / chi_s, 0.0) # (nshell, ngal)
 
     # pot_i_maps has shape (nshell, 2, npix)
     ngal = len(chi_s)
@@ -84,31 +97,43 @@ def lensing_int(theta, phi, chi_s, order=1):
     A=np.zeros((2, ngal))
     B=np.zeros((2, ngal))
     C=np.zeros((3, ngal))
-    D=np.zeros((4, ngal))
+    D=np.zeros((3, ngal))
 
     delta_angle_1 = np.zeros((ngal, 2))
     psi_ij_1 = np.zeros((ngal, 2, 2))
     delta_angle_2 = np.zeros((ngal, 2))
     psi_ij_2 = np.zeros((ngal, 2, 2))
 
-    for sh in range(len(chis)):
-        gradalms, kappaalms, gammaEalms, Falms, Galms = gen_pot_alms.pot_der_alms_from_FLAMINGO_per_shell(sh=sh)
+    for sh in tqdm(range(len(chis))):
+        window_func_weights_delta_angle = np.maximum(1.0 - chis[sh] / chi_s, 0.0) # (ngal,)
+        if alms_from_stored:
+            gradalms, kappaalms, gammaEalms, Falms, Galms = gen_pot_alms.get_stored_alms(sh=sh)
+        else:
+            gradalms, kappaalms, gammaEalms, Falms, Galms = gen_pot_alms.pot_der_alms_from_FLAMINGO_per_shell(sh=sh)
 
-        der_1 = np.array(sht_ders.der_1(*synth(gradalms, spin=1, lmax=lmax, loc=loc))) / chis[sh] # 2 * ngal
+        if lmax_cut is not None:
+            gradalms   = truncate_alm(gradalms, lmax_full, lmax_cut)
+            kappaalms  = truncate_alm(kappaalms, lmax_full, lmax_cut)
+            gammaEalms = truncate_alm(gammaEalms, lmax_full, lmax_cut)
+            Falms      = truncate_alm(Falms, lmax_full, lmax_cut)
+            Galms      = truncate_alm(Galms, lmax_full, lmax_cut)
 
-        der_2 = np.array(sht_ders.der_2(*synth(kappaalms, spin=0, lmax=lmax, loc=loc), *synth(gammaEalms, spin=2, lmax=lmax, loc=loc))) / chis[sh]**2 # 3 * ngal
+        der_1 = np.array(sht_ders.der_1(*synth(gradalms, spin=1, lmax=lmax, loc=loc, nthreads=nthreads))) / chis[sh] # 2 * ngal
 
-        der_3 = np.array(sht_ders.flexion_to_D(*synth(Falms, spin=1, lmax=lmax, loc=loc), *synth(Galms, spin=3, lmax=lmax, loc=loc))) / chis[sh]**3 # 4 * ngal
+        der_2 = np.array(sht_ders.der_2(synth(kappaalms, spin=0, lmax=lmax, loc=loc, nthreads=nthreads), *synth(gammaEalms, spin=2, lmax=lmax, loc=loc, nthreads=nthreads))) / chis[sh]**2 # 3 * ngal
+
+        der_3 = np.array(sht_ders.flexion_to_D(*synth(Falms, spin=1, lmax=lmax, loc=loc, nthreads=nthreads), *synth(Galms, spin=3, lmax=lmax, loc=loc, nthreads=nthreads))) / chis[sh]**3 # 4 * ngal
         
         
         for i in range(2):                        # two transverse components
-            integrand = window_func_weights_delta_angle[sh] * der_1[i, :]      # (ngal,) window * Phi_,i (use that window function is < 0 for chi > chi_s)
+            
+            integrand = window_func_weights_delta_angle * der_1[i, :]      # (ngal,) window * Phi_,i (use that window function is < 0 for chi > chi_s)
             delta_angle_1[:, i] += -2.0 * (w_simpson[sh] * integrand)   # (1,) * (ngal,) -> (ngal,)
         
         for i in range(2):
             for j in range(2):
-                integrand = window_func_weights_delta_angle[sh] * chis[sh, np.newaxis] * der_2[symm_mat_index_2d(i, j), :]     # (nshell * ngal) window * chi * Phi_,ij (window function is the same but you get extra chi factor)
-                psi_ij_1[:, i, j] += -2.0 * (w_simpson[sh] * integrand)    
+                integrand = window_func_weights_delta_angle * chis[sh, np.newaxis] * der_2[symm_mat_index_2d(i, j), :]     # (nshell * ngal) window * chi * Phi_,ij (window function is the same but you get extra chi factor)
+                psi_ij_1[:, i, j] += 2.0 * (w_simpson[sh] * integrand)    
 
 
 
@@ -204,69 +229,82 @@ def new_shape(shapes_old, psi_ij):
     out[:, 1] = 2.0 * Q_lensed[:, 0, 1] / T
     return out
 
-def lens_catalogue(order=2):
-    """Apply 1st- and 2nd-order lensing to every resolved-galaxy shell.
-    All galaxies in a shell are processed at once: synthesis_general has a
-    large fixed cost per call, so batching would re-pay it for every batch.
-    Lensed quantities are written to a separate directory, one file per shell."""
+def lens_catalogue(order=2, alms_from_stored=False, nthreads=os.cpu_count(), batch_size=200_000, lmax_cut=None):
+    '''
+    batch_size gives balance between compute time and ram usage. 
+    compute time stays roughly 26 minutes for up to 1e7 gals.
+    ram usage for 1e5 gals is 10GB currently, for 2e5 gals its like 11GB ??
+    '''
 
-    config.LENSED_SHELLS_L2p8_m9.mkdir(parents=True, exist_ok=True)
 
-    for sh in range(config.NSHELLS_LIGHTCONE):
-        in_path  = config.SHELLS_RESOLVED_L2p8_m9 / f"shell_{sh}.hdf5"
-        out_path = config.LENSED_SHELLS_L2p8_m9 / f"shell_{sh}.hdf5"
-        if not in_path.exists():                   # no resolved galaxies for this shell
-            continue
-        if out_path.exists():
-            print(f"shell {sh} already lensed, skipping")
-            continue
+    config.LENSED_SHELLS.parent.mkdir(parents=True, exist_ok=True)
+    # if config.LENSED_SHELLS.exists():
+    #     print("already lensed, skipping")
+    #     return
 
-        print(f"processing shell {sh}")
-        with h5py.File(in_path, "r") as gal_shell:
-            gal_pos_old = gal_shell["halo_coords"][:]          # (ngal, 3)
-            shape_old   = gal_shell[config.SHAPE_TYPE_FOR_LENS][:]    # (ngal, 2)
-            track_id    = gal_shell["track_id"][:]             # (ngal,) alignment check
-        ngal = len(gal_pos_old)
+    with h5py.File(config.SHELLS_RESOLVED, "r") as gal_shell:
+        gal_pos_old = gal_shell["halo_coords"][:]
+        shape_old   = gal_shell[config.SHAPE_TYPE_FOR_LENS][:]
+        track_id    = gal_shell["track_id"][:]
+    ngal = len(gal_pos_old)
 
-        radius = np.linalg.norm(gal_pos_old, axis=1)       # (ngal,)
-        theta_arr, phi_arr = hp.vec2ang(gal_pos_old)       # each (ngal,)
+    radius = np.linalg.norm(gal_pos_old, axis=1)
+    theta_arr, phi_arr = hp.vec2ang(gal_pos_old)
 
-        delta_angle_1o, psi_ij_1o, delta_angle_2o, psi_ij_2o = lensing_int(
-            theta_arr, phi_arr, radius, order=order)
+    delta_angle_1o = np.zeros((ngal, 2), dtype=np.float32)
+    psi_ij_1o      = np.zeros((ngal, 2, 2), dtype=np.float32)
+    delta_angle_2o = np.zeros((ngal, 2), dtype=np.float32)
+    psi_ij_2o      = np.zeros((ngal, 2, 2), dtype=np.float32)
+    lensed_coords_1o = np.zeros((ngal, 3), dtype=np.float32)
+    lensed_shapes_1o = np.zeros((ngal, 2), dtype=np.float32)
+    lensed_coords_2o = np.zeros((ngal, 3), dtype=np.float32)
+    lensed_shapes_2o = np.zeros((ngal, 2), dtype=np.float32)
 
-        # derived lensed quantities (cheap, vectorized over the whole catalogue)
-        lensed_coords_1o = new_coords(theta_arr, phi_arr, radius, delta_angle_1o)
-        lensed_shapes_1o = new_shape(shape_old, psi_ij_1o)
-        lensed_coords_2o = new_coords(theta_arr, phi_arr, radius, delta_angle_2o)
-        lensed_shapes_2o = new_shape(shape_old, psi_ij_2o)
+    for start in range(0, ngal, batch_size):
+        sl = slice(start, min(start + batch_size, ngal))
+        print(f"batch {sl.start}:{sl.stop} / {ngal}")
 
-        datasets = [
-            ("delta_angle",                  delta_angle_1o),
-            ("psi_ij",                       psi_ij_1o),
-            ("halo_coords_lensed",           lensed_coords_1o),
-            ("projected_tensors_lensed",     lensed_shapes_1o),
-            ("delta_angle_2o",               delta_angle_2o),
-            ("psi_ij_2o",                    psi_ij_2o),
-            ("halo_coords_lensed_2o",        lensed_coords_2o),
-            ("projected_tensors_lensed_2o",  lensed_shapes_2o),
-        ]
+        da1, pij1, da2, pij2 = lensing_int(
+            theta_arr[sl], phi_arr[sl], radius[sl], order=order, alms_from_stored=alms_from_stored, nthreads=nthreads, lmax_cut=lmax_cut)
 
-        tmp_path = out_path.with_name(out_path.name + ".tmp")   # write temp first
-        with h5py.File(tmp_path, "w") as out:
-            for name, arr in datasets:
-                out.create_dataset(name, data=arr.astype(np.float32))
-            out.create_dataset("track_id", data=track_id)
-            out.attrs["shell_index"] = sh
-            out.attrs["order"] = order
-            out.attrs["nside"] = config.NSIDE_OUTPUT_POT_DER_MAPS
-        tmp_path.rename(out_path)                               # rename once fully written
+        delta_angle_1o[sl] = da1
+        psi_ij_1o[sl]      = pij1
+        delta_angle_2o[sl] = da2
+        psi_ij_2o[sl]      = pij2
+
+        lensed_coords_1o[sl] = new_coords(theta_arr[sl], phi_arr[sl], radius[sl], da1)
+        lensed_shapes_1o[sl] = new_shape(shape_old[sl], pij1)
+        lensed_coords_2o[sl] = new_coords(theta_arr[sl], phi_arr[sl], radius[sl], da2)
+        lensed_shapes_2o[sl] = new_shape(shape_old[sl], pij2)
 
         import resource
-        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9   # GB on macOS
-        print(f"  done ({ngal} galaxies, peak RAM {peak:.1f} GB)")
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9
+        print(f"  done ({sl.stop - sl.start} galaxies, peak RAM {peak:.1f} GB)")
+
+    datasets = [
+        ("delta_angle",                  delta_angle_1o),
+        ("psi_ij",                       psi_ij_1o),
+        ("halo_coords_lensed",           lensed_coords_1o),
+        ("projected_tensors_lensed",     lensed_shapes_1o),
+        ("delta_angle_2o",               delta_angle_2o),
+        ("psi_ij_2o",                    psi_ij_2o),
+        ("halo_coords_lensed_2o",        lensed_coords_2o),
+        ("projected_tensors_lensed_2o",  lensed_shapes_2o),
+    ]
+
+    tmp_path = config.LENSED_SHELLS.with_name(config.LENSED_SHELLS.name + ".tmp")
+    with h5py.File(tmp_path, "w") as out:
+        for name, arr in datasets:
+            out.create_dataset(name, data=arr)
+        out.create_dataset("track_id", data=track_id)
+        out.attrs["order"] = order
+        out.attrs["nside"] = config.NSIDE_OUTPUT_POT_DER_MAPS
+    tmp_path.rename(config.LENSED_SHELLS)
+
+    print(f"wrote {ngal} galaxies to {config.LENSED_SHELLS}")
 
 if __name__ == "__main__":
-    lens_catalogue()
+    lens_catalogue(alms_from_stored=True, lmax_cut=1000, batch_size = 1_000_001)
 
     # lens_catalogue(["data/mock_catalogue_s0.00_1e6gals_z0.5.hdf5", "data/mock_catalogue_s0.00_1e6gals_z1.0.hdf5", "data/mock_catalogue_s0.00_1e6gals_z2.0.hdf5"])
     # redshifts = [0.5, 1.0, 2.0]

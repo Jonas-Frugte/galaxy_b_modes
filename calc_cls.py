@@ -5,7 +5,8 @@ import numpy as np
 import h5py
 import healpy as hp
 import pymaster as nmt
-import os
+import itertools
+import scipy
 
 @dataclass(frozen=True)
 class Tracer:
@@ -21,13 +22,34 @@ class Mask:
     alpha_deg: float = 2.0
     rotation_seed: int = 0
 
+    special_dirs = np.array([v for v in itertools.product([-1, 0, 1], repeat=3)
+                         if v != (0, 0, 0)], dtype=float)
+    
+    @property
+    def cos_alpha(self):
+        return np.cos(np.radians(self.alpha_deg))
+    
+    @property
+    def rot_mat(self):
+        rng = np.random.default_rng(self.rotation_seed)
+        theta = np.arccos(1.0 - 2.0 * rng.random())
+        phi   = 2.0 * np.pi * rng.random()
+        rot_nhat = np.array([np.sin(theta) * np.cos(phi),
+                            np.sin(theta) * np.sin(phi),
+                            np.cos(theta)])
+        rot_angle = rng.random() * 2 * np.pi
+        return scipy.spatial.transform.Rotation.from_rotvec(rot_nhat * rot_angle)
+
+
     def _in_special_mask(self, locs: np.ndarray[float]) -> np.ndarray[bool]:
-        # TODO
-        raise(TypeError("Not written yet"))
+        '''
+        Assumes locs is of shape (ngal, 3) and special dirs of shape (26, 3).
+        Returns TRUE for galaxies that ARE NOT IN the special cones.
+        '''
+        return np.max(np.einsum("ij,kj->ik", locs, self.special_dirs) / np.linalg.norm(locs, axis=1)[:, np.newaxis] / np.linalg.norm(self.special_dirs, axis=1)[np.newaxis, :], axis=1) < self.cos_alpha
     
     def _rotate(self, locs: np.ndarray[float]) -> np.ndarray[float]:
-        # TODO
-        raise(TypeError("Not written yet"))
+        return self.rot_mat.apply(locs) # rot mat is not an actual matrix, but a "rotation object"
 
     def in_mask(self, locs: np.ndarray[float]) -> np.ndarray[bool]:
         if self.kind == "none":
@@ -62,81 +84,62 @@ def select_dataset(
         tracer_1: Tracer,
         tracer_2: Tracer,
         mask: Mask = Mask(),
-        lmax: int = config.LMAX_CORR,
     ) -> tuple[DataSet, DataSet]:
     
     datasets = (DataSet(), DataSet())
     for tracer_id in range(2):
         tracer = (tracer_1, tracer_2)[tracer_id]
         datasets[tracer_id].field_type = tracer.field_type
-        
-        for sh in range(config.NSHELLS_LIGHTCONE):
-            if not os.path.exists(config.SHELLS_RESOLVED_L2p8_m9 / f"shell_{sh}.hdf5"):
-                continue
 
-            f_resolved = h5py.File(config.SHELLS_RESOLVED_L2p8_m9 / f"shell_{sh}.hdf5")
-            f_convolved = h5py.File(config.CONVOLVED_ZS_L2p8_m9 / f"shell_{sh}.hdf5")
+        if tracer.field_type == "shape":
+            if tracer.scramble == "none":
+                if tracer.lens_order == 0:
+                    shape_path = config.SHELLS_RESOLVED
+                    ds_name = config.SHAPE_TYPE_FOR_LENS
+                if tracer.lens_order == 1:
+                    shape_path = config.LENSED_SHELLS
+                    ds_name = "projected_tensors_lensed"
+                if tracer.lens_order == 2:
+                    shape_path = config.LENSED_SHELLS
+                    ds_name = "projected_tensors_lensed_2o"
+            #     if tracer.lens_order == 2:
+            #         shapes = f[""][:][in_bin_mask]
+            #     if tracer.lens_order == 3:
+            #         shapes = f[""][:][in_bin_mask]
+            # if tracer.scramble == "linked":
+            #     # TODO
+            # if tracer.scramble == "not_linked":
+            #     # TODO
+
+        with h5py.File(config.SHELLS_RESOLVED, "r") as f_resolved, h5py.File(config.CONVOLVED_ZS, "r") as f_convolved:
+            # check which is in bin and mask
+            z_bin_min = config.Z_BINS[tracer.bin_num]
+            z_bin_max = config.Z_BINS[tracer.bin_num + 1]
+            zs_w_err = f_convolved["redshifts"][:]
+
+            pos_all = f_resolved["halo_coords"][:]
+            in_bin_mask = (zs_w_err < z_bin_max) & (z_bin_min < zs_w_err) & mask.in_mask(pos_all)
+
+            datasets[tracer_id].zs.append(zs_w_err[in_bin_mask])
+            datasets[tracer_id].pos.append(pos_all[in_bin_mask])
+
             if tracer.field_type == "shape":
-                if tracer.scramble == "none":
-                    if tracer.lens_order == 0:
-                        shape_dir = config.SHELLS_RESOLVED_L2p8_m9
-                        ds_name = config.SHAPE_TYPE_FOR_LENS
-                    if tracer.lens_order == 1:
-                        shape_dir = config.LENSED_SHELLS_L2p8_m9
-                        ds_name = "projected_tensors_lensed"
-                    if tracer.lens_order == 2:
-                        shape_dir = config.LENSED_SHELLS_L2p8_m9
-                        ds_name = "projected_tensors_lensed_2o"
-                #     if tracer.lens_order == 2:
-                #         shapes = f[""][:][in_bin_mask]
-                #     if tracer.lens_order == 3:
-                #         shapes = f[""][:][in_bin_mask]
-                # if tracer.scramble == "linked":
-                #     # TODO
-                # if tracer.scramble == "not_linked":
-                #     # TODO
+                with h5py.File(shape_path, "r") as f_shape:
+                    datasets[tracer_id].shape.append(f_shape[ds_name][:][in_bin_mask])
 
-                f_shape = h5py.File(shape_dir / f"shell_{sh}.hdf5")
-
-            try:
-                # check which is in bin and mask
-                z_bin_min = config.Z_BINS[tracer.bin_num]
-                z_bin_max = config.Z_BINS[tracer.bin_num + 1]
-                zs_w_err = f_convolved["redshifts"][:]
-
-                pos_shell = f_resolved["halo_coords"][:]
-                in_bin_mask = (zs_w_err < z_bin_max) & (z_bin_min < zs_w_err) & mask.in_mask(pos_shell)
-
-                if not np.any(in_bin_mask): # true if all gals outside bin
-                    continue
-                
-                datasets[tracer_id].zs.append(zs_w_err[in_bin_mask])
-
-                pos = f_resolved["halo_coords"][:][in_bin_mask]
-                datasets[tracer_id].pos.append(pos)
-                
-                if tracer.field_type == "shape":
-                    shape = f_shape[ds_name][:][in_bin_mask]
-                    datasets[tracer_id].shape.append(shape)
-
-            finally:
-                f_resolved.close()
-                f_convolved.close()
-                if tracer.field_type == "shape":
-                    f_shape.close()
-    
     return datasets
     
 def calc_cl(
         filename: str,
-        dataset1: DataSet, 
-        dataset2: DataSet, 
-        nside = config.NSIDE_CL,
+        dataset1: DataSet,
+        dataset2: DataSet,
+        out_dir = config.CLS,
+        nside = config.NSIDE_CLS,
         effective_mask: Literal["count", "pure"] = "count"
     ) -> dict[str, np.ndarray]:
     
     npix = hp.nside2npix(nside)
-    lmax = 2 * nside
+    lmax = 3 * nside - 1 # NaMaster straight up won't let us use anything else
 
     fields = []
     for ds in [dataset1, dataset2]:
@@ -163,7 +166,7 @@ def calc_cl(
             e1_map[hit] = sum_e1[hit] / count[hit]
             e2_map[hit] = sum_e2[hit] / count[hit]
 
-            field = nmt.NmtField(mask, [e1_map, e2_map], purify_e=False, purify_b=False, beam=hp.pixwin(nside, pol=True, lmax=lmax)[1])
+            field = nmt.NmtField(mask, [e1_map, e2_map], purify_e=False, purify_b=False, beam=hp.pixwin(nside, pol=True)[1])
             fields.append(field)
 
     b = nmt.NmtBin.from_lmax_linear(lmax, nlb=8)
@@ -172,4 +175,23 @@ def calc_cl(
     export_data = np.zeros((np.shape(cl)[0]+1, np.shape(cl)[1]))
     export_data[:np.shape(cl)[0], :] = cl
     export_data[-1, :] = b.get_effective_ells()
-    np.savetxt(config.CLS / filename, export_data)
+    np.savetxt(out_dir / filename, export_data)
+    print(f"wrote {out_dir / filename}")
+
+if __name__ == "__main__":
+    mask_dirs = {
+        "none": config.CLS_UNMASKED,
+        "special": config.CLS_MASKED_SPECIAL,
+        "random": config.CLS_MASKED_RANDOM,
+    }
+    for d in mask_dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+
+    tracers = [Tracer(bin_num=i, field_type="shape", lens_order=2, scramble="none") for i in range(config.NUM_Z_BINS)]
+
+    for mask_kind in ["none", "special", "random"]:
+        mask = Mask(kind=mask_kind)
+        for t1, t2 in itertools.combinations_with_replacement(tracers, 2):
+            print(f"bin {t1.bin_num}x{t2.bin_num}, mask {mask_kind}")
+            dataset1, dataset2 = select_dataset(t1, t2, mask=mask)
+            calc_cl(f"bin{t1.bin_num}x{t2.bin_num}.txt", dataset1, dataset2, out_dir=mask_dirs[mask_kind])

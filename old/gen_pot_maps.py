@@ -4,7 +4,7 @@ import h5py
 from astropy.cosmology import FlatLambdaCDM, z_at_value
 import astropy.units as u
 from tqdm import tqdm
-from config import POT_DER_MAPS_L2p8_m9, MASS_MAP_L2p8_m9, OMEGA_M, H0, c, NSIDE_OUTPUT_POT_DER_MAPS
+from config import POT_DER_MAPS, MASS_MAP, OMEGA_M, H0, c, NSIDE_OUTPUT_POT_DER_MAPS
 
 cosmo = FlatLambdaCDM(H0=H0, Om0=OMEGA_M)
 
@@ -88,7 +88,7 @@ def pot_ders_from_FLAMINGO(nside_output=NSIDE_OUTPUT_POT_DER_MAPS):
         # increasing index <-> increasing chi
         # the mass here is actually total amount of mass per pixel. because we work with delta_m instead of mass density directly
         # the conversion factor from mass per pixel to mass per 3D unit area (mass density) cancels out so we can just use it as is
-        shell_file = h5py.File(MASS_MAP_L2p8_m9 / f"map_{i}.hdf5", "r")
+        shell_file = h5py.File(MASS_MAP / f"map_{i}.hdf5", "r")
         mass_map = shell_file["mass_density"][:].astype(np.float32)
         chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
         chis[i] = chi_centr
@@ -96,9 +96,9 @@ def pot_ders_from_FLAMINGO(nside_output=NSIDE_OUTPUT_POT_DER_MAPS):
 
         pot_i_maps[i, 0], pot_i_maps[i, 1], pot_ij_maps[i, 0], pot_ij_maps[i, 1], pot_ij_maps[i, 2], pot_ijk_maps[i, 0], pot_ijk_maps[i, 1], pot_ijk_maps[i, 2], pot_ijk_maps[i, 3] = matter_to_pot_ders(mass_map, chi_centr, nside_output=nside_output)
 
-    np.save(POT_DER_MAPS_L2p8_m9 / f"chis.npy", chis)
-    np.save(POT_DER_MAPS_L2p8_m9 / f"pot_i_maps.npy", pot_i_maps)
-    np.save(POT_DER_MAPS_L2p8_m9 / f"pot_ij_maps.npy", pot_ij_maps)
-    np.save(POT_DER_MAPS_L2p8_m9 / f"pot_ijk_maps.npy", pot_ijk_maps)
+    np.save(POT_DER_MAPS / f"chis.npy", chis)
+    np.save(POT_DER_MAPS / f"pot_i_maps.npy", pot_i_maps)
+    np.save(POT_DER_MAPS / f"pot_ij_maps.npy", pot_ij_maps)
+    np.save(POT_DER_MAPS / f"pot_ijk_maps.npy", pot_ijk_maps)
 
     return chis, pot_i_maps, pot_ij_maps, pot_ijk_maps
