@@ -1,0 +1,10 @@
+[project]
+name = "bmodes"
+version = "0.1"
+
+[tool.setuptools]
+packages = ["b_modes_modules"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

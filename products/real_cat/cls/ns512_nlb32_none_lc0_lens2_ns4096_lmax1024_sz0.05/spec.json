@@ -1,0 +1,40 @@
+{
+  "mask": {
+    "kind": "none",
+    "alpha_deg": 2.0,
+    "rotation_seed": 0
+  },
+  "num_z_bins": 6,
+  "nside": 512,
+  "nlb": 32,
+  "lens": {
+    "lens_order": 2,
+    "lightcone": 0,
+    "nside_input": 4096,
+    "nside_output": 4096,
+    "lmax_cut": 1024,
+    "shape_type": "proj_tensors",
+    "min_particles": 300
+  },
+  "cosmology": {
+    "omega_c": 0.27,
+    "omega_b": 0.045,
+    "h0": 67.0,
+    "sigma8": 0.83,
+    "n_s": 0.96,
+    "c": 299792.458
+  },
+  "z_bin_edges": [
+    1.1916266892847372e-06,
+    0.546862581519381,
+    0.7743478656952525,
+    0.9917279802244353,
+    1.2411314990465863,
+    1.5950100448097033,
+    6.356689352462389
+  ],
+  "sigma_z": 0.05,
+  "f_sky": 0.36,
+  "n_gal_per_arcmin2": 30.0,
+  "sigma_e": 0.3
+}

@@ -1,0 +1,126 @@
+import healpy as hp
+import numpy as np
+import h5py
+from astropy.cosmology import FlatLambdaCDM, z_at_value
+import astropy.units as u
+from tqdm import tqdm
+
+from b_modes_modules.filepaths import FilePaths
+from b_modes_modules.lens_spec import LensSpec
+from b_modes_modules.cosmology_spec import CosmologySpec
+
+def poisson_factor(chi, cosmology: CosmologySpec):
+    z = cosmology.z_at_chi(chi)
+    a = 1.0 / (1.0 + z)
+    return -1 * (3 / 2) * cosmology.omega_m * cosmology.h0**2 / cosmology.c**2 * chi**2 / a
+
+def matter_to_pot_der_alms(matter_map, chi_centr, lmax, cosmology: CosmologySpec):
+
+    # get alms of grav pot
+    delta_m_map = matter_map / np.mean(matter_map) - 1.0 # TODO: does this actually improve stuff?
+    delta_m_alms = hp.map2alm(delta_m_map, lmax=lmax)
+    ells = np.arange(lmax + 1)
+    # TODO: why not calculate for ell = 0, 1? check later
+    delta_m_2_pot_factors = np.zeros(lmax + 1)
+    delta_m_2_pot_factors[2:] = poisson_factor(chi_centr, cosmology) / (ells[2:] * (ells[2:] + 1))
+    grav_pot_alms = hp.almxfl(delta_m_alms, delta_m_2_pot_factors)
+
+    # gradient
+    grad_alms = hp.almxfl(grav_pot_alms, np.sqrt(ells * (ells+1)))
+
+    # hessian
+    kappa_alms = hp.almxfl(grav_pot_alms, -0.5 * ells * (ells + 1))
+    pot_to_gamma_E_conversion = np.zeros(lmax + 1)
+    pot_to_gamma_E_conversion[2:] = -1 * 0.5 * np.sqrt((ells[2:] - 1) * ells[2:] * (ells[2:] + 1) * (ells[2:] + 2))
+    gamma_E_alms = hp.almxfl(grav_pot_alms, pot_to_gamma_E_conversion)
+
+    # flexion
+    kappa_to_F = np.zeros(lmax + 1)
+    kappa_to_F[2:] = np.sqrt(ells[2:] * (ells[2:] + 1))            # spin 0 -> 1
+    gammaE_to_G = np.zeros(lmax + 1)
+    gammaE_to_G[2:] = np.sqrt((ells[2:] - 2) * (ells[2:] + 3))     # spin 2 -> 3
+
+    F_alms = hp.almxfl(kappa_alms, kappa_to_F)
+    G_alms = hp.almxfl(gamma_E_alms, gammaE_to_G)
+
+    return grad_alms, kappa_alms, gamma_E_alms, F_alms, G_alms
+
+def pot_der_alms_from_FLAMINGO(lens_spec: LensSpec, filepaths: FilePaths, cosmology: CosmologySpec):
+    lmax = 2 * lens_spec.nside_output
+    nshell = filepaths.NSHELL_MASS_MAPS
+
+    chis = np.zeros(nshell)
+    grad_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
+    kappa_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
+    gammaE_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
+    F_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
+    G_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
+
+    for i in tqdm(range(nshell)):
+        # loading mass maps into memory
+        # increasing index <-> increasing chi
+        # the mass here is actually total amount of mass per pixel. because we work with delta_m instead of mass density directly
+        # the conversion factor from mass per pixel to mass per 3D unit area (mass density) cancels out so we can just use it as is
+        shell_file = h5py.File(filepaths.MASS_MAP / f"map_{i}.hdf5", "r")
+        mass_map = shell_file["total_mass"][:].astype(np.float32)
+        chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
+        chis[i] = chi_centr
+        shell_file.close()
+
+        grad_alms[i], kappa_alms[i], gammaE_alms[i], F_alms[i], G_alms[i] = matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
+
+    return grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms
+
+    # np.save(POT_DER_ALMS / f"chis.npy", chis)
+    # np.save(POT_DER_ALMS / f"grad_alms.npy", grad_alms)
+    # np.save(POT_DER_ALMS / f"kappa_alms.npy", kappa_alms)
+    # np.save(POT_DER_ALMS / f"gammaE_alms.npy", gammaE_alms)
+    # np.save(POT_DER_ALMS / f"F_alms.npy", F_alms)
+    # np.save(POT_DER_ALMS / f"G_alms.npy", G_alms)
+
+def pot_der_alms_from_FLAMINGO_per_shell(sh, lens_spec: LensSpec, filepaths: FilePaths, cosmology: CosmologySpec):
+    lmax = 2 * lens_spec.nside_output
+
+    shell_file = h5py.File(filepaths.MASS_MAP / f"map_{sh}.hdf5", "r")
+    mass_map = shell_file["total_mass"][:].astype(np.float32)
+    chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
+    shell_file.close()
+
+    return matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
+
+def get_stored_alms(sh, filepaths: FilePaths):
+    with h5py.File(filepaths.POT_DER_ALMS / filepaths.SHELL_NAME(sh), "r") as f:
+        gradalms = f["grad_alms"][:]
+        kappaalms = f["kappa_alms"][:]
+        gammaEalms = f["gammaE_alms"][:]
+        Falms = f["F_alms"][:]
+        Galms = f["G_alms"][:]
+    return gradalms, kappaalms, gammaEalms, Falms, Galms
+
+def process_catalogue(filepaths: FilePaths, lens_spec: LensSpec = LensSpec(), cosmology: CosmologySpec = CosmologySpec()):
+    filepaths.POT_DER_ALMS.mkdir(parents=True, exist_ok=True)
+
+    for sh in tqdm(range(filepaths.NSHELL_MASS_MAPS)):
+        out_path = filepaths.POT_DER_ALMS / filepaths.SHELL_NAME(sh)
+        if out_path.exists():
+            print(f"shell {sh} already done, skipping")
+            continue
+
+        grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms = pot_der_alms_from_FLAMINGO_per_shell(
+            sh, lens_spec=lens_spec, filepaths=filepaths, cosmology=cosmology)
+
+        tmp_path = out_path.with_name(out_path.name + ".tmp")
+        with h5py.File(tmp_path, "w") as out:
+            out.create_dataset("grad_alms", data=grad_alms.astype(np.complex64))
+            out.create_dataset("kappa_alms", data=kappa_alms.astype(np.complex64))
+            out.create_dataset("gammaE_alms", data=gammaE_alms.astype(np.complex64))
+            out.create_dataset("F_alms", data=F_alms.astype(np.complex64))
+            out.create_dataset("G_alms", data=G_alms.astype(np.complex64))
+            out.attrs["shell_index"] = sh
+        tmp_path.rename(out_path)
+        print(f"shell {sh}: wrote {out_path}")
+
+    print(f"done, wrote alms for {filepaths.NSHELL_MASS_MAPS} shells to {filepaths.POT_DER_ALMS}")
+
+if __name__ == "__main__":
+    process_catalogue(FilePaths())

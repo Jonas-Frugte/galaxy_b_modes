@@ -1,4 +1,5 @@
 data/
+cluster/jobs/logs/
 
 
 ############ STANDARD PYTHON STUFF ##################
