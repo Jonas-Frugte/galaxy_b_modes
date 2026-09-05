@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
-from typing import Literal
 from pathlib import Path
+from typing import Literal
 import itertools
 import json
 import numpy as np
@@ -11,12 +11,16 @@ from b_modes_modules.cosmology_spec import CosmologySpec
 
 @dataclass(frozen=True)
 class Tracer:
-    bin_num: int
+    bin_num: int | list[int]
     filepaths: FilePaths = FilePaths()
     field_type: Literal["shape", "density"] = "shape"
     lens_order: Literal[0, 1, 2] = 2 # 0 = unlensed
-    scramble: Literal["none", "linked", "not_linked"] = "none"
+    IA: Literal["real", "off"] = "real" #, "scrambled_linked", "scrambled_not_linked"] = "none"
     scramble_seed: int = 0
+
+    def __post_init__(self):
+        bins = (self.bin_num,) if isinstance(self.bin_num, int) else tuple(self.bin_num)
+        object.__setattr__(self, "bin_num", tuple(sorted(bins)))
 
 @dataclass(frozen=True)
 class Mask:
@@ -85,8 +89,9 @@ class ClSpec:
 
     @property
     def filename(self) -> str:
-        i, j = (self.tracer_1.bin_num, self.tracer_2.bin_num)
-        return f"bin{min(i, j)}x{max(i, j)}.txt"
+        fmt = lambda bins: "-".join(str(b) for b in bins)
+        lo, hi = sorted([self.tracer_1.bin_num, self.tracer_2.bin_num])
+        return f"bin{fmt(lo)}x{fmt(hi)}.txt"
  
     @property
     def tag(self) -> str:

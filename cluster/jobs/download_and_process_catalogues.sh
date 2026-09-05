@@ -5,13 +5,15 @@
 #$ -q itf-fat.q
 #$ -l h_rt=72:00:00
 #$ -l h_vmem=64G
-#$ -pe smp 1
+#$ -pe smp 32
 #$ -cwd
 #$ -V
 #$ -m abe
 #$ -M j.s.a.frugte@uu.nl
 
 set -e
+
+export OMP_NUM_THREADS=$NSLOTS
 
 source /usr/local/miniconda3/etc/profile.d/conda.sh
 conda activate b-modes

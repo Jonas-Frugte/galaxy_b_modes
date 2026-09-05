@@ -6,6 +6,7 @@ import healpy as hp
 import pymaster as nmt
 
 from b_modes_modules.cls_spec import ClSpec
+from b_modes_modules.calculate_gal_shape_pos import get_gal_shape_pos
 
 @dataclass
 class DataSet:
@@ -35,47 +36,35 @@ def get_datasets(cls_spec: ClSpec) -> tuple[DataSet, DataSet, ClSpec]:
         datasets[tracer_id].field_type = tracer.field_type
         datasets[tracer_id].bin_num = tracer.bin_num
 
-        # load zs, pos from correct filepaths
         with h5py.File(tracer.filepaths.SHELLS_RESOLVED, "r") as f:
             zs = f["redshifts"][:]
             pos_all = f["halo_coords"][:]
+            if tracer.field_type == "shape" and tracer.lens_order == 0:
+                shape_all = f[cls_spec.lens.shape_type][:] if tracer.IA == "real" else np.zeros((len(pos_all), 2))
 
         # each tracer may point at a different catalogue, so bin on its own zs
         zs_w_err, z_bins = cls_spec.process_zs(zs)
         if tracer_id == 0:
             cls_spec = replace(cls_spec, z_bin_edges=tuple(z_bins))
 
-        if tracer.field_type == "shape":
-            if tracer.scramble == "none":
-                if tracer.lens_order == 0:
-                    shape_path = tracer.filepaths.SHELLS_RESOLVED
-                    ds_name = cls_spec.lens.shape_type
-                if tracer.lens_order == 1:
-                    shape_path = tracer.filepaths.LENSED_SHELLS
-                    ds_name = "projected_tensors_lensed"
-                if tracer.lens_order == 2:
-                    shape_path = tracer.filepaths.LENSED_SHELLS
-                    ds_name = "projected_tensors_lensed_2o"
-            #     if tracer.lens_order == 2:
-            #         shapes = f[""][:][in_bin_mask]
-            #     if tracer.lens_order == 3:
-            #         shapes = f[""][:][in_bin_mask]
-            # if tracer.scramble == "linked":
-            #     # TODO
-            # if tracer.scramble == "not_linked":
-            #     # TODO
+        if tracer.field_type == "shape" and tracer.lens_order > 0:
+            suffix = "1o" if tracer.lens_order == 1 else "2o"
+            with h5py.File(tracer.filepaths.LENSED_SHELLS, "r") as f:
+                psi_ij = f[f"psi_ij_{suffix}"][:]
+                delta_angle = f[f"delta_angle_{suffix}"][:]
+            shape_all, pos_all = get_gal_shape_pos(psi_ij, delta_angle, tracer, cls_spec.lens)
 
-        z_bin_min = z_bins[tracer.bin_num]
-        z_bin_max = z_bins[tracer.bin_num + 1]
+        in_z_range = np.zeros(len(zs_w_err), dtype=bool)
+        for b in tracer.bin_num:
+            in_z_range |= (z_bins[b] < zs_w_err) & (zs_w_err < z_bins[b + 1])
 
-        in_bin_mask = (zs_w_err < z_bin_max) & (z_bin_min < zs_w_err) & cls_spec.mask.in_mask(pos_all)
+        in_bin_mask = in_z_range & cls_spec.mask.in_mask(pos_all)
 
         datasets[tracer_id].zs.append(zs_w_err[in_bin_mask])
         datasets[tracer_id].pos.append(pos_all[in_bin_mask])
 
         if tracer.field_type == "shape":
-            with h5py.File(shape_path, "r") as f_shape:
-                datasets[tracer_id].shape.append(f_shape[ds_name][:][in_bin_mask])
+            datasets[tracer_id].shape.append(shape_all[in_bin_mask])
 
     return datasets[0], datasets[1], cls_spec
     
@@ -83,6 +72,7 @@ def shape_noise_coupled(ds, mask, count, hit, npix):
     """
     Coupled (pseudo-Cl) shape noise, NaMaster eq 37.
     """
+    #TODO: pass intrinsic shape of galaxies, not the lensed shapes. decent approximation for now
     sigma_e_sq = np.mean(np.std(ds.shape, axis=0)**2)
     omega_pix = 4 * np.pi / npix
     return omega_pix * np.sum(mask[hit]**2 * sigma_e_sq / count[hit]) / npix
@@ -96,10 +86,9 @@ def calc_cl(clspec: ClSpec, store: bool = False) -> dict[str, np.ndarray]:
     npix = hp.nside2npix(nside)
     lmax = 3 * nside - 1 # NaMaster straight up won't let us use anything else
 
-    # same bin on both sides means the same galaxies, so their intrinsic
-    # shapes correlate with themselves and we pick up shape noise
-    # TODO: check what happens when we for example scramble tracer shapes, adjust this accordingly
     is_auto = dataset1.bin_num == dataset2.bin_num
+    # shape noise comes from random intrinsic shapes -- nothing to subtract if IA is off
+    apply_noise = is_auto and clspec.tracer_1.IA == "real" and clspec.tracer_2.IA == "real"
 
     fields = []
     noise = 0.0
@@ -126,18 +115,16 @@ def calc_cl(clspec: ClSpec, store: bool = False) -> dict[str, np.ndarray]:
             field = nmt.NmtField(mask, [e1_map, e2_map], purify_e=False, purify_b=False, beam=hp.pixwin(nside, pol=True)[1])
             fields.append(field)
 
-            if is_auto:
+            if apply_noise:
                 # TODO: this needs to be adjusted for more general maps with varying weights, see namaster eq 37
                 noise = shape_noise_coupled(ds, mask, count, hit, npix) 
                 cl_noise = np.zeros((4, lmax + 1))
                 cl_noise[0] = noise
                 cl_noise[3] = noise
 
-
-
     b = nmt.NmtBin.from_lmax_linear(lmax, nlb=clspec.nlb)
     w = nmt.NmtWorkspace.from_fields(*fields, b)
-    cl = w.decouple_cell(nmt.workspaces.compute_coupled_cell(*fields), cl_noise = cl_noise if is_auto else None)
+    cl = w.decouple_cell(nmt.workspaces.compute_coupled_cell(*fields), cl_noise = cl_noise if apply_noise else None)
 
 
     export_data = np.zeros((np.shape(cl)[0]+1, np.shape(cl)[1]))

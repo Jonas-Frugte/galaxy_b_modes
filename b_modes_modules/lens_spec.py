@@ -3,7 +3,6 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class LensSpec:
     lens_order: int = 2 # 0 = unlensed
-    lightcone: int = 0
     nside_input: int = 4096
     nside_output: int = 4096
     lmax_cut: int = 1024
@@ -12,4 +11,4 @@ class LensSpec:
 
     @property
     def tag(self) -> str:
-        return f"lc{self.lightcone}_lens{self.lens_order}_ns{self.nside_output}_lmax{self.lmax_cut}"
+        return f"lens{self.lens_order}_ns{self.nside_output}_lmax{self.lmax_cut}"

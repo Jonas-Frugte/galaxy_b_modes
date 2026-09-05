@@ -49,16 +49,16 @@ class FilePaths:
         return self.DATA / f"mass_maps_{NSIDE_MASS_MAPS}"
 
     @property
-    def CHIS_MASS_MAP(self) -> Path:
-        return self.MASS_MAP / "chis.npy"
-
-    @property
     def POT_DER_MAPS(self) -> Path:
         return self.DATA / f"pot_der_maps_{NSIDE_MASS_MAPS}"
 
     @property
     def POT_DER_ALMS(self) -> Path:
         return self.DATA / f"pot_der_alms_{NSIDE_MASS_MAPS}"
+
+    @property
+    def CHIS_MASS_MAP(self) -> Path:
+        return self.POT_DER_ALMS / "chis.npy"
 
     @property
     def LENSED_SHELLS(self) -> Path:

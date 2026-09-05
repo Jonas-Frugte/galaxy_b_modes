@@ -86,7 +86,12 @@ def pot_der_alms_from_FLAMINGO_per_shell(sh, lens_spec: LensSpec, filepaths: Fil
     chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
     shell_file.close()
 
-    return matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
+    return chi_centr, matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
+
+def get_shell_chi(sh, filepaths: FilePaths) -> float:
+    with h5py.File(filepaths.MASS_MAP / f"map_{sh}.hdf5", "r") as f:
+        attrs = f["shell_info"].attrs
+        return 0.5 * (attrs["comoving_inner_radius"][0] + attrs["comoving_outer_radius"][0])
 
 def get_stored_alms(sh, filepaths: FilePaths):
     with h5py.File(filepaths.POT_DER_ALMS / filepaths.SHELL_NAME(sh), "r") as f:
@@ -100,14 +105,17 @@ def get_stored_alms(sh, filepaths: FilePaths):
 def process_catalogue(filepaths: FilePaths, lens_spec: LensSpec = LensSpec(), cosmology: CosmologySpec = CosmologySpec()):
     filepaths.POT_DER_ALMS.mkdir(parents=True, exist_ok=True)
 
+    chis = np.zeros(filepaths.NSHELL_MASS_MAPS)
     for sh in tqdm(range(filepaths.NSHELL_MASS_MAPS)):
         out_path = filepaths.POT_DER_ALMS / filepaths.SHELL_NAME(sh)
         if out_path.exists():
             print(f"shell {sh} already done, skipping")
+            chis[sh] = get_shell_chi(sh, filepaths)
             continue
 
-        grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms = pot_der_alms_from_FLAMINGO_per_shell(
+        chi_centr, (grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms) = pot_der_alms_from_FLAMINGO_per_shell(
             sh, lens_spec=lens_spec, filepaths=filepaths, cosmology=cosmology)
+        chis[sh] = chi_centr
 
         tmp_path = out_path.with_name(out_path.name + ".tmp")
         with h5py.File(tmp_path, "w") as out:
@@ -119,6 +127,9 @@ def process_catalogue(filepaths: FilePaths, lens_spec: LensSpec = LensSpec(), co
             out.attrs["shell_index"] = sh
         tmp_path.rename(out_path)
         print(f"shell {sh}: wrote {out_path}")
+
+    np.save(filepaths.CHIS_MASS_MAP, chis)
+    print(f"wrote shell chis to {filepaths.CHIS_MASS_MAP}")
 
     print(f"done, wrote alms for {filepaths.NSHELL_MASS_MAPS} shells to {filepaths.POT_DER_ALMS}")
 

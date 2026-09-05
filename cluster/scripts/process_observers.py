@@ -21,13 +21,13 @@ if not any(soap_check.SOAP.glob("*.hdf5")):
 
 for lc in range(8):
     filepaths = FilePaths(CAT_NAME=f"real_cat_{lc}")
-    lens_spec = LensSpec(lightcone=lc)
+    lens_spec = LensSpec()
 
     print(f"=== observer {lc}: downloading lightcone ===")
-    download_lightcone(filepaths, lens_spec)
+    download_lightcone(filepaths, lc)
 
     print(f"=== observer {lc}: downloading mass maps ===")
-    download_mass_maps(filepaths, lens_spec)
+    download_mass_maps(filepaths, lc)
 
     print(f"=== observer {lc}: computing pot_der_alms ===")
     gen_pot_alms.process_catalogue(filepaths, lens_spec)

@@ -12,16 +12,15 @@ import hdfstream
 import h5py
 
 from b_modes_modules.filepaths import FilePaths
-from b_modes_modules.lens_spec import LensSpec
 
 SIM_NAME = "L2p8_m9"
 NSIDE = 4096
 
 
-def download_mass_maps(filepaths: FilePaths, lens_spec: LensSpec):
+def download_mass_maps(filepaths: FilePaths, lightcone: int):
     root_dir = hdfstream.open("cosma", "/")
     lc_dir = root_dir[
-        f"FLAMINGO/{SIM_NAME}/{SIM_NAME}/healpix_maps/nside_{NSIDE}/lightcone{lens_spec.lightcone}_shells/"
+        f"FLAMINGO/{SIM_NAME}/{SIM_NAME}/healpix_maps/nside_{NSIDE}/lightcone{lightcone}_shells/"
     ]
     output_dir = filepaths.MASS_MAP
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -48,10 +47,10 @@ def download_mass_maps(filepaths: FilePaths, lens_spec: LensSpec):
 
         print(f"  shell {i}: wrote {out_path}")
 
-    print(f"  lightcone {lens_spec.lightcone} mass maps done")
+    print(f"  lightcone {lightcone} mass maps done")
 
 
 if __name__ == "__main__":
     for lc in range(8):
         print(f"--- lightcone {lc} ---")
-        download_mass_maps(FilePaths(CAT_NAME=f"real_cat_{lc}"), LensSpec(lightcone=lc))
+        download_mass_maps(FilePaths(CAT_NAME=f"real_cat_{lc}"), lc)

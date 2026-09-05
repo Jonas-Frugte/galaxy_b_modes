@@ -22,7 +22,6 @@ import hdfstream
 import h5py
 
 from b_modes_modules.filepaths import FilePaths
-from b_modes_modules.lens_spec import LensSpec
 
 FIELDS = {
     # Passed through from SOAP (units: 1e10 Msun).
@@ -65,9 +64,9 @@ def copy_meta_groups(src_file, out):
             g.attrs[key] = src_group.attrs[key]
 
 
-def download_lightcone(filepaths: FilePaths, lens_spec: LensSpec):
+def download_lightcone(filepaths: FilePaths, lightcone: int):
     root_dir = hdfstream.open("cosma", "/")
-    lc_dir = root_dir[f"FLAMINGO/L2p8_m9/L2p8_m9/halo_lightcone/lightcone{lens_spec.lightcone}"]
+    lc_dir = root_dir[f"FLAMINGO/L2p8_m9/L2p8_m9/halo_lightcone/lightcone{lightcone}"]
 
     output_dir = filepaths.RAW_LIGHTCONE
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -104,10 +103,10 @@ def download_lightcone(filepaths: FilePaths, lens_spec: LensSpec):
         tmp_path.rename(shell_path)
         print(f"  shell {i} done")
 
-    print(f"  lightcone {lens_spec.lightcone} download done")
+    print(f"  lightcone {lightcone} download done")
 
 
 if __name__ == "__main__":
     for lc in range(8):
         print(f"--- lightcone {lc} ---")
-        download_lightcone(FilePaths(CAT_NAME=f"real_cat_{lc}"), LensSpec(lightcone=lc))
+        download_lightcone(FilePaths(CAT_NAME=f"real_cat_{lc}"), lc)

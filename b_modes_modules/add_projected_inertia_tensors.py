@@ -134,4 +134,4 @@ def process_resolved_subhalos(filepaths: FilePaths, lens_spec: LensSpec):
 if __name__ == "__main__":
     LIGHTCONE = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     CAT_NAME = sys.argv[2] if len(sys.argv) > 2 else f"real_cat_{LIGHTCONE}"
-    process_resolved_subhalos(FilePaths(CAT_NAME=CAT_NAME), LensSpec(lightcone=LIGHTCONE))
+    process_resolved_subhalos(FilePaths(CAT_NAME=CAT_NAME), LensSpec())
