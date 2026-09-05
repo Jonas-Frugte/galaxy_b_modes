@@ -13,13 +13,9 @@
 
 set -e
 
-source ~/miniconda3/etc/profile.d/conda.sh
+source /usr/local/miniconda3/etc/profile.d/conda.sh
 conda activate b-modes
 
 cd /nethome/frugt001/galaxy_b_modes/cluster/scripts
 
-python3 -u data_download_lightcones.py
-python3 -u data_download_mass_maps.py
-python3 -u process_pot_der_alms.py
-
-echo "all downloads + alm processing done"
+python3 -u process_observers.py

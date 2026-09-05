@@ -1,5 +1,6 @@
 data/
-cluster/jobs/logs/
+cluster/jobs/logs/*
+!cluster/jobs/logs/.gitkeep
 
 
 ############ STANDARD PYTHON STUFF ##################
