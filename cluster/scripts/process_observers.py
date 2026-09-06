@@ -19,7 +19,7 @@ soap_check = FilePaths()
 if not any(soap_check.SOAP.glob("*.hdf5")):
     raise SystemExit(f"no SOAP data found at {soap_check.SOAP} -- run data_download_SOAP.py first")
 
-for lc in range(8):
+for lc in range(1, 8):
     filepaths = FilePaths(CAT_NAME=f"real_cat_{lc}")
     lens_spec = LensSpec()
 
