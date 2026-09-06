@@ -8,8 +8,10 @@ class CosmologySpec:
     omega_b: float = 0.045
     h0: float = 67.0
     sigma8: float = 0.83
-    n_s: float = 0.96
+    As: float = 2.1e-9
+    ns: float = 0.96
     c: float = 299792.458 # km / s
+    mnu: float = 0.06
 
     @property
     def omega_m(self) -> float:

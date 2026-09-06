@@ -18,6 +18,12 @@ class Tracer:
     IA: Literal["real", "off"] = "real" #, "scrambled_linked", "scrambled_not_linked"] = "none"
     scramble_seed: int = 0
 
+    def is_in_bins(self, zs: np.ndarray, z_bins: np.ndarray) -> np.ndarray:
+        in_range = np.zeros(len(zs), dtype=bool)
+        for b in self.bin_num:
+            in_range |= (z_bins[b] < zs) & (zs < z_bins[b + 1])
+        return in_range
+
     def __post_init__(self):
         bins = (self.bin_num,) if isinstance(self.bin_num, int) else tuple(self.bin_num)
         object.__setattr__(self, "bin_num", tuple(sorted(bins)))
