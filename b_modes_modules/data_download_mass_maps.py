@@ -31,7 +31,7 @@ def download_mass_maps(filepaths: FilePaths, lightcone: int):
             print(f"  shell {i} already exists, skipping")
             continue
 
-        remote_name = f"shell_{i}/swift_lightcone0.shell_{i}.0.hdf5"
+        remote_name = f"shell_{i}/swift_lightcone{lightcone}.shell_{i}.0.hdf5"
         shell_file = lc_dir[remote_name]
 
         mass_map = shell_file["TotalMass"][:]      # HEALPix map for this shell
