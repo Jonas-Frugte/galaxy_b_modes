@@ -4,7 +4,7 @@
 #$ -e /nethome/frugt001/galaxy_b_modes/cluster/jobs/logs/download_and_process.err
 #$ -q itf-fat.q
 #$ -l h_rt=72:00:00
-#$ -l h_vmem=64G
+#$ -l h_vmem=128G
 #$ -pe smp 32
 #$ -cwd
 #$ -V
