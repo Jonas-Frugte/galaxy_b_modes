@@ -6,7 +6,7 @@ ks = np.loadtxt("data/L1_m9/power_spectra/power_matter_0122.txt")[:, 1]
 Pks = [Pk(k, 0)[0] for k in ks]
 plt.loglog(ks, Pks)
 
-from b_modes_modules.rotation_lps import camb_nonlinear_pk
+from b_modes_modules.theoretical_lps import camb_nonlinear_pk
 ks, Pks = camb_nonlinear_pk(z=0.0, ks=ks)
 plt.loglog(ks, Pks, linestyle=":")
 

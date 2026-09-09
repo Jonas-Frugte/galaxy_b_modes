@@ -66,7 +66,7 @@ def copy_meta_groups(src_file, out):
 
 def download_lightcone(filepaths: FilePaths, lightcone: int):
     root_dir = hdfstream.open("cosma", "/")
-    lc_dir = root_dir[f"FLAMINGO/L2p8_m9/L2p8_m9/halo_lightcone/lightcone{lightcone}"]
+    lc_dir = root_dir[f"FLAMINGO/{filepaths.BOX_NAME}/{filepaths.BOX_NAME}/halo_lightcone/lightcone{lightcone}"]
 
     output_dir = filepaths.RAW_LIGHTCONE
     output_dir.mkdir(parents=True, exist_ok=True)

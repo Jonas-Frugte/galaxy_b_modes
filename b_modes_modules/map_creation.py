@@ -75,7 +75,7 @@ if __name__ == "__main__":
     plt.loglog(ells, cl[3], label = "BB")
     plt.loglog(ells, np.abs(cl[1]), label = "|EB|", linestyle = ":")
 
-    from b_modes_modules.rotation_lps import get_kappa_power
+    from b_modes_modules.theoretical_lps import get_kappa_power
     ls, cl = get_kappa_power(1.0)
     plt.loglog(ls, cl, label="CAMB ee")
     # ells_2o, cl_2o, nl_2o = create_cl(["data/mock_catalogue_s0.00_1e7gals.hdf5",], nside, order=2)

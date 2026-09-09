@@ -20,4 +20,4 @@ conda activate b-modes
 
 cd /nethome/frugt001/galaxy_b_modes/cluster/scripts
 
-python3 -u process_observers.py
+python3 -u process_observers.py L2p8_m9 1 7

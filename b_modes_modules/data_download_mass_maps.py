@@ -13,14 +13,13 @@ import h5py
 
 from b_modes_modules.filepaths import FilePaths
 
-SIM_NAME = "L2p8_m9"
 NSIDE = 4096
 
 
 def download_mass_maps(filepaths: FilePaths, lightcone: int):
     root_dir = hdfstream.open("cosma", "/")
     lc_dir = root_dir[
-        f"FLAMINGO/{SIM_NAME}/{SIM_NAME}/healpix_maps/nside_{NSIDE}/lightcone{lightcone}_shells/"
+        f"FLAMINGO/{filepaths.BOX_NAME}/{filepaths.BOX_NAME}/healpix_maps/nside_{NSIDE}/lightcone{lightcone}_shells/"
     ]
     output_dir = filepaths.MASS_MAP
     output_dir.mkdir(parents=True, exist_ok=True)

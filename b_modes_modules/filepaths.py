@@ -8,7 +8,7 @@ MAC_HOME = Path("/Users/Frugt001/Desktop")
 if GEMINI_HOME.exists():
     ON_GEMINI = True
     HOME = GEMINI_HOME
-    DATA_ROOT = Path("/scratch/frugt001/L2p8_m9")
+    DATA_ROOT = Path("/scratch/frugt001")
 else:
     ON_GEMINI = False
     HOME = MAC_HOME
@@ -22,6 +22,7 @@ NSIDE_MASS_MAPS = 4096
 @dataclass(frozen=True)
 class FilePaths:
     '''Input data. One instance per lightcone / catalogue.'''
+    BOX_NAME: str = "L2p8_m9"
     CAT_NAME: str = "real_cat_1"
 
     NSHELL_MASS_MAPS: int = 68 # !!! different for different sized boxes !!!
@@ -29,7 +30,7 @@ class FilePaths:
 
     @property
     def DATA(self) -> Path:
-        return DATA_ROOT / self.CAT_NAME
+        return DATA_ROOT / self.BOX_NAME / self.CAT_NAME
 
     @property
     def RAW_LIGHTCONE(self) -> Path:
@@ -37,8 +38,8 @@ class FilePaths:
 
     @property
     def SOAP(self) -> Path:
-        '''Shared across catalogues: same halo catalogue underlies every lightcone.'''
-        return DATA_ROOT / "soap"
+        '''Shared across catalogues within a box: same halo catalogue underlies every lightcone.'''
+        return DATA_ROOT / self.BOX_NAME / "soap"
 
     @property
     def SHELLS_RESOLVED(self) -> Path:
@@ -76,12 +77,13 @@ class FilePaths:
 @dataclass(frozen=True)
 class ProductPaths:
     '''Output. Small results tracked in the repo, not the big data.'''
+    BOX_NAME: str = "L2p8_m9"
     CAT_NAME: str = "real_cat_1"
 
     @property
     def PRODUCTS(self) -> Path:
         top = "products_gemini" if ON_GEMINI else "products"
-        return REPO / top / self.CAT_NAME
+        return REPO / top / self.BOX_NAME / self.CAT_NAME
 
     @property
     def CLS(self) -> Path:

@@ -227,7 +227,7 @@ def test_flexion_G():
               f"resid rms / signal rms = {np.std(resid)/np.std(b[good]):.2e}")
 
 
-from b_modes_modules.rotation_lps import get_rotation_power
+from b_modes_modules.theoretical_lps import get_rotation_power
 
 def plot_omega_cl(z_source=1.0):
 
