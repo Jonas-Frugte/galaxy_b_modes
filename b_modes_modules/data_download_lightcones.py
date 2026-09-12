@@ -53,13 +53,15 @@ def download_field(src_file, path, name, out):
 
 
 def copy_meta_groups(src_file, out):
-    """Copy attribute-only metadata groups, skipping any that are absent."""
+    """Copy attribute-only metadata groups. A group absent upstream still gets
+    created (empty) locally, so a future patch pass doesn't treat a genuinely
+    absent group as still-missing and retry it forever."""
     for gname in META_GROUPS:
+        g = out.require_group(gname)
         try:
             src_group = src_file[gname]
         except KeyError:
             continue
-        g = out.require_group(gname)
         for key in src_group.attrs.keys():
             g.attrs[key] = src_group.attrs[key]
 
