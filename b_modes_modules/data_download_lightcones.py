@@ -44,10 +44,16 @@ FIELDS = {
 META_GROUPS = ["Units", "Cosmology"]
 
 
-def download_field(src_file, path, name, out):
-    """Stream one field from the source file into an open output file."""
+def download_field(src_file, path, name, out, batch_size=5_000_000):
+    """Stream one field from the source file into an open output file, in
+    row-batches rather than one full in-memory read -- some fields (e.g. for
+    the higher-resolution boxes) are tens of GB, and reading the whole thing
+    at once risks exceeding the job's memory limit."""
     src = src_file[path]
-    dset = out.create_dataset(name, data=src[:])
+    dset = out.create_dataset(name, shape=src.shape, dtype=src.dtype)
+    for start in range(0, src.shape[0], batch_size):
+        end = min(start + batch_size, src.shape[0])
+        dset[start:end] = src[start:end]
     for key in src.attrs.keys():            # carry unit metadata over
         dset.attrs[key] = src.attrs[key]
 
