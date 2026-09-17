@@ -46,6 +46,14 @@ class FilePaths:
         return self.DATA / "shells_resolved.hdf5"
 
     @property
+    def SHELLS_RESOLVED_PARTS(self) -> Path:
+        '''One small resolved file per lightcone shell, written as each shell is
+        processed and merged into SHELLS_RESOLVED at the end. Lets a crash mid-way
+        through a lightcone resume from the last completed shell instead of losing
+        all progress.'''
+        return self.DATA / "shells_resolved_parts"
+
+    @property
     def MASS_MAP(self) -> Path:
         return self.DATA / f"mass_maps_{NSIDE_MASS_MAPS}"
 

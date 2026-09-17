@@ -17,7 +17,6 @@ import sys
 from b_modes_modules.filepaths import FilePaths
 from b_modes_modules.lens_spec import LensSpec
 from b_modes_modules import gen_pot_alms
-from b_modes_modules.data_download_lightcones import download_lightcone
 from b_modes_modules.data_download_mass_maps import download_mass_maps
 from b_modes_modules.data_download_soap import download_soap
 from b_modes_modules.add_projected_inertia_tensors import process_resolved_subhalos
@@ -38,19 +37,16 @@ for lc in range(FIRST_LC, LAST_LC + 1):
                            NSHELL_MASS_MAPS=N_SHELL_MASS_MAPS, NSHELLS_LIGHTCONE=N_SHELLS_LIGHTCONE)
     lens_spec = LensSpec()
 
-    print(f"=== observer {lc}: downloading lightcone ===")
-    download_lightcone(filepaths, lc)
-
     print(f"=== observer {lc}: downloading mass maps ===")
     download_mass_maps(filepaths, lc)
 
     print(f"=== observer {lc}: computing pot_der_alms ===")
     gen_pot_alms.process_catalogue(filepaths, lens_spec)
 
-    print(f"=== observer {lc}: building resolved subhalos ===")
-    process_resolved_subhalos(filepaths, lens_spec)
+    print(f"=== observer {lc}: building resolved subhalos (lightcone shells downloaded and deleted one at a time) ===")
+    process_resolved_subhalos(filepaths, lens_spec, lc)
 
-    print(f"=== observer {lc}: deleting raw lightcone + mass maps ===")
+    print(f"=== observer {lc}: deleting mass maps ===")
     shutil.rmtree(filepaths.RAW_LIGHTCONE, ignore_errors=True)
     shutil.rmtree(filepaths.MASS_MAP, ignore_errors=True)
 

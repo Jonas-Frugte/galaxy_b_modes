@@ -72,44 +72,54 @@ def copy_meta_groups(src_file, out):
             g.attrs[key] = src_group.attrs[key]
 
 
+def download_lightcone_shell(filepaths: FilePaths, lightcone: int, i: int, lc_dir=None):
+    """Download (or patch) a single lightcone shell. Pass an already-open
+    `lc_dir` when calling this repeatedly for the same lightcone, to avoid
+    reopening the remote connection for every shell."""
+    if lc_dir is None:
+        root_dir = hdfstream.open("cosma", "/")
+        lc_dir = root_dir[f"FLAMINGO/{filepaths.BOX_NAME}/{filepaths.BOX_NAME}/halo_lightcone/lightcone{lightcone}"]
+
+    output_dir = filepaths.RAW_LIGHTCONE
+    output_dir.mkdir(parents=True, exist_ok=True)
+    shell_path = output_dir / filepaths.SHELL_NAME(i)
+
+    if shell_path.exists():
+        with h5py.File(shell_path, "r") as out:
+            missing = {path: name for path, name in FIELDS.items() if name not in out}
+            missing_meta = [g for g in META_GROUPS if g not in out]
+
+        if not missing and not missing_meta:
+            print(f"  shell {i} already done, skipping")
+            return
+
+        print(f"  shell {i}: patching in {list(missing.values())}")
+        file = lc_dir[f"lightcone_halos_{i:04d}.hdf5"]
+        with h5py.File(shell_path, "a") as out:
+            for path, name in missing.items():
+                download_field(file, path, name, out)
+            if missing_meta:
+                copy_meta_groups(file, out)
+        print(f"  shell {i} patched")
+        return
+
+    file = lc_dir[f"lightcone_halos_{i:04d}.hdf5"]
+
+    tmp_path = shell_path.with_name(shell_path.name + ".tmp")
+    with h5py.File(tmp_path, "w") as out:
+        for path, name in FIELDS.items():
+            download_field(file, path, name, out)
+        copy_meta_groups(file, out)
+    tmp_path.rename(shell_path)
+    print(f"  shell {i} done")
+
+
 def download_lightcone(filepaths: FilePaths, lightcone: int):
     root_dir = hdfstream.open("cosma", "/")
     lc_dir = root_dir[f"FLAMINGO/{filepaths.BOX_NAME}/{filepaths.BOX_NAME}/halo_lightcone/lightcone{lightcone}"]
 
-    output_dir = filepaths.RAW_LIGHTCONE
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     for i in range(filepaths.NSHELLS_LIGHTCONE):
-        shell_path = output_dir / filepaths.SHELL_NAME(i)
-
-        if shell_path.exists():
-            with h5py.File(shell_path, "r") as out:
-                missing = {path: name for path, name in FIELDS.items() if name not in out}
-                missing_meta = [g for g in META_GROUPS if g not in out]
-
-            if not missing and not missing_meta:
-                print(f"  shell {i} already done, skipping")
-                continue
-
-            print(f"  shell {i}: patching in {list(missing.values())}")
-            file = lc_dir[f"lightcone_halos_{i:04d}.hdf5"]
-            with h5py.File(shell_path, "a") as out:
-                for path, name in missing.items():
-                    download_field(file, path, name, out)
-                if missing_meta:
-                    copy_meta_groups(file, out)
-            print(f"  shell {i} patched")
-            continue
-
-        file = lc_dir[f"lightcone_halos_{i:04d}.hdf5"]
-
-        tmp_path = shell_path.with_name(shell_path.name + ".tmp")
-        with h5py.File(tmp_path, "w") as out:
-            for path, name in FIELDS.items():
-                download_field(file, path, name, out)
-            copy_meta_groups(file, out)
-        tmp_path.rename(shell_path)
-        print(f"  shell {i} done")
+        download_lightcone_shell(filepaths, lightcone, i, lc_dir=lc_dir)
 
     print(f"  lightcone {lightcone} download done")
 

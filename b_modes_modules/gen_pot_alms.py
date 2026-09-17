@@ -14,8 +14,7 @@ def poisson_factor(chi, cosmology: CosmologySpec):
     a = 1.0 / (1.0 + z)
     return -1 * (3 / 2) * cosmology.omega_m * cosmology.h0**2 / cosmology.c**2 * chi**2 / a
 
-def matter_to_pot_der_alms(matter_map, chi_centr, lmax, cosmology: CosmologySpec):
-
+def matter_to_grav_pot_alms(matter_map, chi_centr, lmax, cosmology: CosmologySpec):
     # get alms of grav pot
     delta_m_map = matter_map / np.mean(matter_map) - 1.0 # TODO: does this actually improve stuff?
     delta_m_alms = hp.map2alm(delta_m_map, lmax=lmax)
@@ -23,7 +22,14 @@ def matter_to_pot_der_alms(matter_map, chi_centr, lmax, cosmology: CosmologySpec
     # TODO: why not calculate for ell = 0, 1? check later
     delta_m_2_pot_factors = np.zeros(lmax + 1)
     delta_m_2_pot_factors[2:] = poisson_factor(chi_centr, cosmology) / (ells[2:] * (ells[2:] + 1))
-    grav_pot_alms = hp.almxfl(delta_m_alms, delta_m_2_pot_factors)
+    return hp.almxfl(delta_m_alms, delta_m_2_pot_factors)
+
+def derived_alms_from_potential(grav_pot_alms, lmax):
+    """grad/kappa/gammaE/F/G alms are each just grav_pot_alms times a purely
+    ell-dependent factor (no m-mixing), so only grav_pot_alms needs to be
+    stored on disk -- these are reconstructed from it on demand, at ~1/5 the
+    storage of keeping all five."""
+    ells = np.arange(lmax + 1)
 
     # gradient
     grad_alms = hp.almxfl(grav_pot_alms, np.sqrt(ells * (ells+1)))
@@ -45,39 +51,6 @@ def matter_to_pot_der_alms(matter_map, chi_centr, lmax, cosmology: CosmologySpec
 
     return grad_alms, kappa_alms, gamma_E_alms, F_alms, G_alms
 
-def pot_der_alms_from_FLAMINGO(lens_spec: LensSpec, filepaths: FilePaths, cosmology: CosmologySpec):
-    lmax = 2 * lens_spec.nside_output
-    nshell = filepaths.NSHELL_MASS_MAPS
-
-    chis = np.zeros(nshell)
-    grad_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
-    kappa_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
-    gammaE_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
-    F_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
-    G_alms = np.zeros((nshell, hp.sphtfunc.Alm.getsize(lmax)), dtype=np.complex64)
-
-    for i in tqdm(range(nshell)):
-        # loading mass maps into memory
-        # increasing index <-> increasing chi
-        # the mass here is actually total amount of mass per pixel. because we work with delta_m instead of mass density directly
-        # the conversion factor from mass per pixel to mass per 3D unit area (mass density) cancels out so we can just use it as is
-        shell_file = h5py.File(filepaths.MASS_MAP / f"map_{i}.hdf5", "r")
-        mass_map = shell_file["total_mass"][:].astype(np.float32)
-        chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
-        chis[i] = chi_centr
-        shell_file.close()
-
-        grad_alms[i], kappa_alms[i], gammaE_alms[i], F_alms[i], G_alms[i] = matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
-
-    return grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms
-
-    # np.save(POT_DER_ALMS / f"chis.npy", chis)
-    # np.save(POT_DER_ALMS / f"grad_alms.npy", grad_alms)
-    # np.save(POT_DER_ALMS / f"kappa_alms.npy", kappa_alms)
-    # np.save(POT_DER_ALMS / f"gammaE_alms.npy", gammaE_alms)
-    # np.save(POT_DER_ALMS / f"F_alms.npy", F_alms)
-    # np.save(POT_DER_ALMS / f"G_alms.npy", G_alms)
-
 def pot_der_alms_from_FLAMINGO_per_shell(sh, lens_spec: LensSpec, filepaths: FilePaths, cosmology: CosmologySpec):
     lmax = 2 * lens_spec.nside_output
 
@@ -86,7 +59,7 @@ def pot_der_alms_from_FLAMINGO_per_shell(sh, lens_spec: LensSpec, filepaths: Fil
     chi_centr = 0.5 * (shell_file["shell_info"].attrs["comoving_inner_radius"][0] + shell_file["shell_info"].attrs["comoving_outer_radius"][0])
     shell_file.close()
 
-    return chi_centr, matter_to_pot_der_alms(mass_map, chi_centr, lmax, cosmology)
+    return chi_centr, matter_to_grav_pot_alms(mass_map, chi_centr, lmax, cosmology)
 
 def get_shell_chi(sh, filepaths: FilePaths) -> float:
     with h5py.File(filepaths.MASS_MAP / f"map_{sh}.hdf5", "r") as f:
@@ -95,12 +68,7 @@ def get_shell_chi(sh, filepaths: FilePaths) -> float:
 
 def get_stored_alms(sh, filepaths: FilePaths):
     with h5py.File(filepaths.POT_DER_ALMS / filepaths.SHELL_NAME(sh), "r") as f:
-        gradalms = f["grad_alms"][:]
-        kappaalms = f["kappa_alms"][:]
-        gammaEalms = f["gammaE_alms"][:]
-        Falms = f["F_alms"][:]
-        Galms = f["G_alms"][:]
-    return gradalms, kappaalms, gammaEalms, Falms, Galms
+        return f["grav_pot_alms"][:]
 
 def process_catalogue(filepaths: FilePaths, lens_spec: LensSpec = LensSpec(), cosmology: CosmologySpec = CosmologySpec()):
     filepaths.POT_DER_ALMS.mkdir(parents=True, exist_ok=True)
@@ -113,17 +81,13 @@ def process_catalogue(filepaths: FilePaths, lens_spec: LensSpec = LensSpec(), co
             chis[sh] = get_shell_chi(sh, filepaths)
             continue
 
-        chi_centr, (grad_alms, kappa_alms, gammaE_alms, F_alms, G_alms) = pot_der_alms_from_FLAMINGO_per_shell(
+        chi_centr, grav_pot_alms = pot_der_alms_from_FLAMINGO_per_shell(
             sh, lens_spec=lens_spec, filepaths=filepaths, cosmology=cosmology)
         chis[sh] = chi_centr
 
         tmp_path = out_path.with_name(out_path.name + ".tmp")
         with h5py.File(tmp_path, "w") as out:
-            out.create_dataset("grad_alms", data=grad_alms.astype(np.complex64))
-            out.create_dataset("kappa_alms", data=kappa_alms.astype(np.complex64))
-            out.create_dataset("gammaE_alms", data=gammaE_alms.astype(np.complex64))
-            out.create_dataset("F_alms", data=F_alms.astype(np.complex64))
-            out.create_dataset("G_alms", data=G_alms.astype(np.complex64))
+            out.create_dataset("grav_pot_alms", data=grav_pot_alms.astype(np.complex64))
             out.attrs["shell_index"] = sh
         tmp_path.rename(out_path)
         print(f"shell {sh}: wrote {out_path}")

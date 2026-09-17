@@ -114,10 +114,12 @@ def lensing_int(theta, phi, chi_s, lens_spec: LensSpec, filepaths: FilePaths,
     for sh in tqdm(range(len(chis))):
         window_func_weights_delta_angle = np.maximum(1.0 - chis[sh] / chi_s, 0.0) # (ngal,)
         if alms_from_stored:
-            gradalms, kappaalms, gammaEalms, Falms, Galms = gen_pot_alms.get_stored_alms(sh=sh, filepaths=filepaths)
+            grav_pot_alms = gen_pot_alms.get_stored_alms(sh=sh, filepaths=filepaths)
         else:
-            _, (gradalms, kappaalms, gammaEalms, Falms, Galms) = gen_pot_alms.pot_der_alms_from_FLAMINGO_per_shell(
+            _, grav_pot_alms = gen_pot_alms.pot_der_alms_from_FLAMINGO_per_shell(
                 sh=sh, lens_spec=lens_spec, filepaths=filepaths, cosmology=cosmology)
+
+        gradalms, kappaalms, gammaEalms, Falms, Galms = gen_pot_alms.derived_alms_from_potential(grav_pot_alms, lmax_full)
 
         if lmax_cut is not None:
             gradalms   = truncate_alm(gradalms, lmax_full, lmax_cut)
