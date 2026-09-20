@@ -79,7 +79,7 @@ def project_tensors(tensors, halo_coords, origin=np.array([0, 0, 0])):
     return out
 
 
-def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int):
+def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int, batch_size: int = 20_000_000):
     """Reads one already-downloaded raw lightcone shell + the matching SOAP
     snapshot, resolves it, and returns {field_name: array} for whatever
     galaxies passed the particle-count cut (possibly empty).
@@ -88,64 +88,91 @@ def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int):
     box (L1_m8) it turned out to be a stale precomputed index, wrong for the
     majority of halos, while TrackId (the actual persistent identifier on
     both sides) still matches correctly. So the SOAP row for each lightcone
-    halo is instead reconstructed here by matching TrackIds directly."""
+    halo is instead reconstructed here by matching TrackIds directly.
+
+    Processed in batches along the lightcone's halo axis -- some shells have
+    several billion halos, and reading a full-shell-sized array (even just
+    once, even before masking to the tiny kept fraction) can exceed available
+    memory. Only the SOAP-side arrays are read in full up front; those have
+    tens of millions of rows at most, never billions."""
     soap_dir = filepaths.SOAP
     shell_path = filepaths.RAW_LIGHTCONE / filepaths.SHELL_NAME(i)
 
-    shell_fields = {name: None for name in ALL_FIELDS}
+    out_fields = {name: [] for name in ALL_FIELDS}
 
     with h5py.File(shell_path, "r") as lightcone_shell:
-        lc_track_id = lightcone_shell["track_id"][:]
+        n_halos = lightcone_shell["track_id"].shape[0]
 
-        if len(lc_track_id) == 0:
+        if n_halos == 0:
             print(f"  shell {i} empty, skipping")
-            return shell_fields
+            return {name: None for name in ALL_FIELDS}
 
         with h5py.File(soap_dir / f"halos_{i:04d}.hdf5", "r") as soap_data:
-            # check redshift of soap_snapshot and redshift of lightcone shell first:
-            z_lc = lightcone_shell["redshifts"][:]
-            z_lc_min, z_lc_max = z_lc.min(), z_lc.max()
             z_snap_soap = float(np.atleast_1d(soap_data["Cosmology"].attrs["Redshift"])[0])
-            print(f"  shell {i}: lightcone z=[{z_lc_min:.3f}, {z_lc_max:.3f}], SOAP snapshot z={z_snap_soap:.3f}")
+            print(f"  shell {i}: {n_halos:,} halos, SOAP snapshot z={z_snap_soap:.3f}")
 
-            # -1 where a lightcone TrackId has no match in this snapshot's SOAP catalogue
-            soap_row_idx_lightcone = pd.Index(soap_data["track_id"][:]).get_indexer(lc_track_id)
-            found = soap_row_idx_lightcone != -1
-            if not found.all():
-                print(f"    {(~found).sum()} of {len(lc_track_id)} lightcone TrackIds "
-                      f"not found in SOAP snapshot {i}, dropping them")
+            # SOAP-side arrays are small (tens of millions of rows, never
+            # billions) -- safe to read in full once, both to build the
+            # TrackId lookup and to serve properties for kept rows
+            soap_track_id_index = pd.Index(soap_data["track_id"][:])
+            n_star_full = soap_data["n_star_particles"][:]
 
-            n_star_lightcone = np.zeros(len(lc_track_id), dtype=soap_data["n_star_particles"].dtype)
-            n_star_lightcone[found] = soap_data["n_star_particles"][:][soap_row_idx_lightcone[found]]
-            keep_lightcone = found & (n_star_lightcone > min_num_particles)
+            total_found = 0
+            total_kept = 0
+            zero_tensor_counts = {value: 0 for value in FIELDS_SOAP_TENSOR.values()}
 
-            if np.sum(keep_lightcone) == 0:
-                return shell_fields
+            for start in range(0, n_halos, batch_size):
+                end = min(start + batch_size, n_halos)
+                lc_track_id = lightcone_shell["track_id"][start:end]
 
-            # read then mask in numpy: h5py boolean selection is ~5x slower,
-            # and halo_coords gets fully read again in the FIELDS_LIGHTCONE loop below anyway
-            coords_keep = lightcone_shell["halo_coords"][:][keep_lightcone]
+                # -1 where a lightcone TrackId has no match in this snapshot's SOAP catalogue
+                soap_row_idx = soap_track_id_index.get_indexer(lc_track_id)
+                found = soap_row_idx != -1
+                total_found += int(found.sum())
 
-            uniq, inv = np.unique(soap_row_idx_lightcone[keep_lightcone], return_inverse=True)
+                n_star_batch = np.zeros(end - start, dtype=n_star_full.dtype)
+                n_star_batch[found] = n_star_full[soap_row_idx[found]]
+                keep = found & (n_star_batch > min_num_particles)
+                n_kept = int(keep.sum())
+                total_kept += n_kept
+                if n_kept == 0:
+                    continue
 
-            for key, value in FIELDS_SOAP_TENSOR.items():
-                tensors_for_lightcone_keep = soap_data[key][uniq][inv]
-                num_zero_tensors = np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1))
-                print(f"    zero tensors in {key}: {num_zero_tensors}")
-                shell_fields[value] = project_tensors(tensors_for_lightcone_keep, coords_keep)
+                soap_row_idx_kept = soap_row_idx[keep]
+                # read the batch (bounded size) then mask in numpy, rather than
+                # a boolean-indexed h5py read over the whole (huge) dataset
+                coords_keep = lightcone_shell["halo_coords"][start:end][keep]
 
-            for key, value in FIELDS_SOAP.items():
-                shell_fields[value] = soap_data[key][uniq][inv]
+                uniq, inv = np.unique(soap_row_idx_kept, return_inverse=True)
 
-            for key, value in FIELDS_LIGHTCONE.items():
-                if key == "SOAP_indexes":
-                    # the reconstructed index, not the lightcone's own (possibly stale) one
-                    shell_fields[value] = soap_row_idx_lightcone[keep_lightcone]
-                else:
-                    data_array = lightcone_shell[key][:]
-                    shell_fields[value] = data_array[keep_lightcone]
+                for key, value in FIELDS_SOAP_TENSOR.items():
+                    tensors_for_lightcone_keep = soap_data[key][uniq][inv]
+                    zero_tensor_counts[value] += int(np.sum(np.all(tensors_for_lightcone_keep == 0, axis=1)))
+                    out_fields[value].append(project_tensors(tensors_for_lightcone_keep, coords_keep))
 
-    return shell_fields
+                for key, value in FIELDS_SOAP.items():
+                    out_fields[value].append(soap_data[key][uniq][inv])
+
+                for key, value in FIELDS_LIGHTCONE.items():
+                    if key == "SOAP_indexes":
+                        # the reconstructed index, not the lightcone's own (possibly stale) one
+                        out_fields[value].append(soap_row_idx_kept)
+                    elif key == "halo_coords":
+                        out_fields[value].append(coords_keep)
+                    else:
+                        out_fields[value].append(lightcone_shell[key][start:end][keep])
+
+            print(f"    {n_halos - total_found:,} of {n_halos:,} lightcone TrackIds "
+                  f"not found in SOAP snapshot {i}")
+            print(f"    {total_kept:,} resolved (n_star_particles > {min_num_particles})")
+            for value, count in zero_tensor_counts.items():
+                if count:
+                    print(f"    zero tensors in {value}: {count:,}")
+
+    if total_kept == 0:
+        return {name: None for name in ALL_FIELDS}
+
+    return {name: np.concatenate(chunks, axis=0) for name, chunks in out_fields.items()}
 
 
 def merge_resolved_shells(filepaths: FilePaths):
