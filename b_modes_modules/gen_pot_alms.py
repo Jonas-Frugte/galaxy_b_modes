@@ -51,6 +51,19 @@ def derived_alms_from_potential(grav_pot_alms, lmax):
 
     return grad_alms, kappa_alms, gamma_E_alms, F_alms, G_alms
 
+def grav_pot_alms_from_kappa(kappa_alms):
+    """Inverts kappa_alms = almxfl(grav_pot_alms, -0.5*l(l+1)) to recover
+    grav_pot_alms. Used to convert old-format stored alms (which kept all
+    five derived quantities) into the new grav_pot_alms-only format without
+    needing the mass maps or a fresh spherical harmonic transform. The l=0
+    factor is zero (grav_pot_alms is zero there by construction anyway, see
+    matter_to_grav_pot_alms), so it's left as zero rather than divided."""
+    lmax = hp.Alm.getlmax(len(kappa_alms))
+    ells = np.arange(lmax + 1)
+    inv_factor = np.zeros(lmax + 1)
+    inv_factor[2:] = -2.0 / (ells[2:] * (ells[2:] + 1))
+    return hp.almxfl(kappa_alms, inv_factor)
+
 def pot_der_alms_from_FLAMINGO_per_shell(sh, lens_spec: LensSpec, filepaths: FilePaths, cosmology: CosmologySpec):
     lmax = 2 * lens_spec.nside_output
 
