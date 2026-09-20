@@ -179,6 +179,10 @@ def process_resolved_subhalos(filepaths: FilePaths, lens_spec: LensSpec, lightco
     only accumulated in memory), so a crash partway through a lightcone can
     resume from the last completed shell instead of losing everything; the
     per-shell parts are merged into one SHELLS_RESOLVED file at the end."""
+    if filepaths.SHELLS_RESOLVED.exists():
+        print(f"  {filepaths.SHELLS_RESOLVED} already exists, skipping resolved subhalos")
+        return
+
     lightcone_dir = filepaths.RAW_LIGHTCONE
     min_num_particles = lens_spec.min_particles
 
