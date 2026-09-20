@@ -1,6 +1,7 @@
 import sys
 import shutil
 import numpy as np
+import pandas as pd
 import h5py
 import hdfstream
 
@@ -81,16 +82,22 @@ def project_tensors(tensors, halo_coords, origin=np.array([0, 0, 0])):
 def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int):
     """Reads one already-downloaded raw lightcone shell + the matching SOAP
     snapshot, resolves it, and returns {field_name: array} for whatever
-    galaxies passed the particle-count cut (possibly empty)."""
+    galaxies passed the particle-count cut (possibly empty).
+
+    The lightcone's own SOAP_indexes field is not trusted -- for at least one
+    box (L1_m8) it turned out to be a stale precomputed index, wrong for the
+    majority of halos, while TrackId (the actual persistent identifier on
+    both sides) still matches correctly. So the SOAP row for each lightcone
+    halo is instead reconstructed here by matching TrackIds directly."""
     soap_dir = filepaths.SOAP
     shell_path = filepaths.RAW_LIGHTCONE / filepaths.SHELL_NAME(i)
 
     shell_fields = {name: None for name in ALL_FIELDS}
 
     with h5py.File(shell_path, "r") as lightcone_shell:
-        soap_row_idx_lightcone = lightcone_shell["SOAP_indexes"][:]
+        lc_track_id = lightcone_shell["track_id"][:]
 
-        if len(soap_row_idx_lightcone) == 0:
+        if len(lc_track_id) == 0:
             print(f"  shell {i} empty, skipping")
             return shell_fields
 
@@ -101,15 +108,19 @@ def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int):
             z_snap_soap = float(np.atleast_1d(soap_data["Cosmology"].attrs["Redshift"])[0])
             print(f"  shell {i}: lightcone z=[{z_lc_min:.3f}, {z_lc_max:.3f}], SOAP snapshot z={z_snap_soap:.3f}")
 
-            n_star_lightcone = soap_data["n_star_particles"][:][soap_row_idx_lightcone]
-            keep_lightcone = n_star_lightcone > min_num_particles
+            # -1 where a lightcone TrackId has no match in this snapshot's SOAP catalogue
+            soap_row_idx_lightcone = pd.Index(soap_data["track_id"][:]).get_indexer(lc_track_id)
+            found = soap_row_idx_lightcone != -1
+            if not found.all():
+                print(f"    {(~found).sum()} of {len(lc_track_id)} lightcone TrackIds "
+                      f"not found in SOAP snapshot {i}, dropping them")
+
+            n_star_lightcone = np.zeros(len(lc_track_id), dtype=soap_data["n_star_particles"].dtype)
+            n_star_lightcone[found] = soap_data["n_star_particles"][:][soap_row_idx_lightcone[found]]
+            keep_lightcone = found & (n_star_lightcone > min_num_particles)
 
             if np.sum(keep_lightcone) == 0:
                 return shell_fields
-
-            assert np.all(
-                soap_data["track_id"][:][soap_row_idx_lightcone] == lightcone_shell["track_id"][:]
-            ), "track_ids don't line up"
 
             # read then mask in numpy: h5py boolean selection is ~5x slower,
             # and halo_coords gets fully read again in the FIELDS_LIGHTCONE loop below anyway
@@ -127,8 +138,12 @@ def resolve_shell(filepaths: FilePaths, i: int, min_num_particles: int):
                 shell_fields[value] = soap_data[key][uniq][inv]
 
             for key, value in FIELDS_LIGHTCONE.items():
-                data_array = lightcone_shell[key][:]
-                shell_fields[value] = data_array[keep_lightcone]
+                if key == "SOAP_indexes":
+                    # the reconstructed index, not the lightcone's own (possibly stale) one
+                    shell_fields[value] = soap_row_idx_lightcone[keep_lightcone]
+                else:
+                    data_array = lightcone_shell[key][:]
+                    shell_fields[value] = data_array[keep_lightcone]
 
     return shell_fields
 
